@@ -17,7 +17,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Logbooks">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=29">
 </head>
 <body>
 <header class="app-header">
@@ -35,14 +35,7 @@
   <div id="cage-viewer-panel" class="panel cage-viewer-panel">
     <div id="sessionBarHolder"></div>
     <div id="cageViewerPartDropdown" class="cage-viewer-part-dropdown"></div>
-    <div class="cage-viewer-header" title="Bars light up as you confirm them below. Click a bar to jump to it in the checklist; double-click to select/deselect it or cycle through its design options. Drag to rotate, scroll to zoom, shift+drag to pan.">
-      <strong>Live cage model</strong>
-      <div id="cageViewerHeaderButtons" class="cage-viewer-header-buttons">
-        <button id="cageViewerReset" class="btn small secondary">Reset</button>
-        <button id="cageViewerGhostToggle" class="btn small secondary" title="Toggle whether bars not yet confirmed show dimmed for context, or are hidden entirely">Hide ghost bars</button>
-        <button id="cageViewerDriverToggle" class="btn small secondary" title="Toggle whether the driver/codriver mannequins show, so you can see the cage tubes behind them">Hide driver</button>
-        <button id="cageViewerToggle" class="btn small secondary">Hide 3D model</button>
-      </div>
+    <div id="cageViewerHeader" class="cage-viewer-header" hidden>
       <div id="cageViewerPictureModeBanner" class="cage-viewer-picture-banner" hidden>
         <span>Selecting parts for this picture &mdash; click a bar to tag it (or cycle its design options).</span>
         <button id="cageViewerPictureModeDone" class="btn small">Done</button>
@@ -55,6 +48,13 @@
       <img class="cage-viewer-watermark" src="images/frog-racing-logo-192.png" alt="Frog Racing">
       <button id="cageViewerSafetyScore" class="cage-viewer-safety-score" type="button" hidden></button>
       <div id="cageViewerTooltip" class="cage-viewer-tooltip" hidden></div>
+      <!-- The model's own view controls, on the model itself. Ghost bars /
+           Occupants are toggles: filled = on, outlined = off. -->
+      <div id="cageViewerHeaderButtons" class="cage-viewer-overlay-buttons" title="Click a bar to jump to it in the checklist; double-click to cycle through its design options. Drag to rotate, scroll to zoom, shift+drag to pan.">
+        <button id="cageViewerReset" class="btn small secondary" title="Reset the view">Reset</button>
+        <button id="cageViewerGhostToggle" class="btn small" aria-pressed="true" title="Bars not yet confirmed show dimmed for context (on) or are hidden entirely (off)">Ghost bars</button>
+        <button id="cageViewerDriverToggle" class="btn small" aria-pressed="true" title="Show the driver/codriver mannequins (on), or hide them to see the cage tubes behind them (off)">Occupants</button>
+      </div>
     </div>
   </div>
 </div>
@@ -81,13 +81,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
 <script src="/config.js?v=1790625808250"></script>
-<script src="version.js?v=2026-09-30-11"></script>
-<script src="cage_view.js?v=132"></script>
+<script src="version.js?v=2026-09-30-13"></script>
+<script src="cage_view.js?v=133"></script>
 <script src="diagrams.js?v=31"></script>
 <script src="sanctioning-bodies.js?v=1"></script>
-<script src="rules-data.js?v=121"></script>
+<script src="rules-data.js?v=122"></script>
 <script src="pdf_report.js?v=7"></script>
 <script src="templates.js?v=10"></script>
-<script src="app.js?v=316"></script>
+<script src="app.js?v=319"></script>
 </body>
 </html>
