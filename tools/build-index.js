@@ -27,7 +27,8 @@ rep(/<link rel="icon" type="image\/png" sizes="192x192" href="[^"]*">/, '<link r
 rep(/<link rel="apple-touch-icon" href="[^"]*">/, '<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=1">');
 rep(/<link rel="manifest" href="[^"]*">/, '<link rel="manifest" href="/manifest.webmanifest?v=1">');
 rep(/<meta name="apple-mobile-web-app-title" content="[^"]*">/, '<meta name="apple-mobile-web-app-title" content="Logbooks">');
-rep(/<h1>Rollcage assessment tool /, "<h1>Digital logbooks ");
+// The title, after the app logo (this app's own icon instead).
+rep(/<h1><img class="app-logo" src="[^"]*" alt="">Rollcage assessment tool /, '<h1><img class="app-logo" src="/icons/icon-192.png?v=1" alt="">Digital logbooks ');
 // The app's configuration has to load before every shared script.
 rep(/(<script src="version\.js)/, '<script src="/config.js?v=' + fs.statSync(path.join(ROOT, "config.js")).mtimeMs.toFixed(0) + '"></script>\n$1');
 

@@ -17,11 +17,11 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Logbooks">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="stylesheet" href="style.css?v=39">
+<link rel="stylesheet" href="style.css?v=41">
 </head>
 <body>
 <header class="app-header">
-  <h1>Digital logbooks <span class="brand-link">by <a href="https://frogracing.us" target="_blank" rel="noopener">Frog Racing</a></span> <span id="buildNumber" class="build-number"></span></h1>
+  <h1><img class="app-logo" src="/icons/icon-192.png?v=1" alt="">Digital logbooks <span class="brand-link">by <a href="https://frogracing.us" target="_blank" rel="noopener">Frog Racing</a></span> <span id="buildNumber" class="build-number"></span></h1>
   <p class="disclaimer">
     <strong>This tool is currently under development and not ready for public use.</strong> Contact
     <a href="mailto:info@frogracing.us">info@frogracing.us</a> if you want to contribute to the development
@@ -46,6 +46,8 @@
     <div id="cageViewerPart3Controls" class="cage-viewer-part3-controls"></div>
     <div id="cageViewerContainer" class="cage-viewer-container">
       <img class="cage-viewer-watermark" src="images/frog-racing-logo-192.png" alt="Frog Racing">
+      <!-- The first rollcage picture, to view (and zoom on) full screen right from the model. -->
+      <button id="cageViewerFirstPicture" class="cage-viewer-first-picture" type="button" title="View the rollcage picture full screen" aria-label="View the first rollcage picture full screen" hidden><img alt=""></button>
       <button id="cageViewerSafetyScore" class="cage-viewer-safety-score" type="button" hidden></button>
       <div id="cageViewerTooltip" class="cage-viewer-tooltip" hidden></div>
       <!-- The model's own view controls, on the model itself. Ghost bars /
@@ -81,13 +83,13 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
 <script src="/config.js?v=1790625808250"></script>
-<script src="version.js?v=2026-10-01-10"></script>
+<script src="version.js?v=2026-10-01-11"></script>
 <script src="cage_view.js?v=134"></script>
 <script src="diagrams.js?v=31"></script>
 <script src="sanctioning-bodies.js?v=1"></script>
-<script src="rules-data.js?v=128"></script>
+<script src="rules-data.js?v=131"></script>
 <script src="pdf_report.js?v=7"></script>
-<script src="templates.js?v=23"></script>
-<script src="app.js?v=348"></script>
+<script src="templates.js?v=35"></script>
+<script src="app.js?v=351"></script>
 </body>
 </html>
