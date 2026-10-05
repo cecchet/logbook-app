@@ -1,0 +1,61 @@
+/* Digital logbooks -- the account panel (account.js), on top of the shared
+   app's own styles (panel, field, btn, badge, verdict...). */
+/* Same box as the shared app's #app (max-width 900px, 20px side padding). */
+.account-holder { max-width: 900px; margin: 0 auto; padding: 0 20px; }
+.account-panel { margin-bottom: 16px; }
+.account-panel input[type="text"] { min-width: 220px; }
+.account-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.account-roles { display: inline-flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.account-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
+.account-actions a.btn { text-decoration: none; }
+.account-section { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
+.account-section-head { background: none; border: none; padding: 4px 0; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; }
+.account-section-body { padding: 4px 0 4px 16px; }
+.account-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }
+.account-card-title { font-weight: 600; margin-bottom: 4px; }
+.account-records { margin: 6px 0 0; padding-left: 22px; font-size: 0.85rem; }
+.account-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.85rem; }
+.account-table th, .account-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.account-table th { color: var(--muted); font-weight: 600; }
+.account-table td.account-warn { color: var(--warn); }
+.account-row-actions { white-space: nowrap; }
+.account-row-actions .btn { margin: 0 4px 2px 0; }
+.account-device { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.account-card.selected { border-color: var(--accent); }
+.account-checks { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.9rem; }
+.account-event-title { margin: 14px 0 2px; font-size: 1rem; }
+.badge.pass { background: var(--pass-bg); color: var(--pass); }
+/* Tech progress: passed (green) and failed (red) shares of the cars entered. */
+.account-progress { margin-top: 6px; }
+.account-progress-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--border); margin-bottom: 4px; }
+.account-progress-bar .pass { background: var(--pass); }
+.account-progress-bar .fail { background: var(--fail); }
+/* A competitor: car number, driver and car, then the inspection buttons or result. */
+.account-entry { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--border); }
+.account-entry:first-of-type { border-top: none; }
+.account-car-number { font-weight: 700; min-width: 3em; }
+.account-entry-main { flex: 1; min-width: 0; }
+/* Home: one card per mode, numbered, like PassTech's landing page. */
+.account-modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 14px; }
+.account-mode { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); color: var(--ink); font: inherit; cursor: pointer; }
+.account-mode:hover { border-color: var(--accent); }
+.account-mode-number { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-weight: 700; font-size: 0.85rem; }
+.account-mode-title { font-weight: 700; font-size: 1rem; }
+.account-mode-text { color: var(--muted); font-size: 0.85rem; }
+.account-mode-header { display: flex; align-items: center; gap: 12px; margin: 14px 0 6px; }
+.account-mode-header h2 { margin: 0; }
+/* The logbook open below: its name, and saving / viewing it. */
+.account-open-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius); margin: 8px 0; }
+.account-open-name { min-width: 0; }
+/* What a logbook still needs before it's issued. */
+.account-checklist { list-style: none; margin: 4px 0; padding: 0; font-size: 0.9rem; }
+.account-checklist li { padding: 4px 0; }
+.account-check-mark { display: inline-block; width: 1.2em; font-weight: 700; }
+.account-checklist li.done .account-check-mark { color: var(--pass); }
+.account-checklist li.todo .account-check-mark { color: var(--fail); }
+.account-more { margin-top: 10px; font-size: 0.9rem; }
+.account-more summary { cursor: pointer; color: var(--muted); }
+@media (max-width: 640px) {
+  .account-table { display: block; overflow-x: auto; }
+  .account-panel input[type="text"] { min-width: 0; width: 100%; }
+}

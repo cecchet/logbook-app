@@ -1,0 +1,11 @@
+{
+  "name": "logbook-app",
+  "private": true,
+  "description": "Digital logbooks (logbook.frogracing.us)",
+  "scripts": {
+    "test:db": "node tools/test-db.mjs"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8"
+  }
+}

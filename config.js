@@ -19,4 +19,17 @@ window.APP_CONFIG = {
   apiUrl: "/api/analyze-cage",
   tourSeenKey: "logbook-app-tour-seen",
   pdfTitle: "Digital Logbook",
+  // Open on the account panel (account.js), not the library: the logbook
+  // editor shows once a logbook is opened or prepared.
+  startHidden: true,
+  // A logbook being prepared has no event log: events come once it's issued.
+  eventsOnlyWhenIssued: true,
+};
+
+// The central logbook repository (Supabase -- see supabase/README.md). The
+// anon key is public by design: the database's access rules protect the
+// data. Never put the service_role key here.
+window.LOGBOOK_SERVER = {
+  url: "https://opltqtjxrzlgucrgznft.supabase.co",
+  anonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9wbHRxdGp4cnpsZ3Vjcmd6bmZ0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTExNjk0NTAsImV4cCI6MjEwNjc0NTQ1MH0.zp9-mI7BUpjIltkZLa707tayiQ-9SvdOomYONU36wPI",
 };

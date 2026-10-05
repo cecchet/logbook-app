@@ -30,7 +30,13 @@ rep(/<meta name="apple-mobile-web-app-title" content="[^"]*">/, '<meta name="app
 // The title, after the app logo (this app's own icon instead).
 rep(/<h1><img class="app-logo" src="[^"]*" alt="">Rollcage assessment tool /, '<h1><img class="app-logo" src="/icons/icon-192.png?v=1" alt="">Digital logbooks ');
 // The app's configuration has to load before every shared script.
-rep(/(<script src="version\.js)/, '<script src="/config.js?v=' + fs.statSync(path.join(ROOT, "config.js")).mtimeMs.toFixed(0) + '"></script>\n$1');
+const v = (file) => fs.statSync(path.join(ROOT, file)).mtimeMs.toFixed(0);
+rep(/(<script src="version\.js)/, '<script src="/config.js?v=' + v("config.js") + '"></script>\n$1');
+// The account panel (sign-in, garage, issuing, administration -- account.js)
+// between the header and the rollcage, after the shared scripts.
+rep(/(<\/head>)/, '<link rel="stylesheet" href="/account.css?v=' + v("account.css") + '">\n$1');
+rep(/(<\/header>\r?\n)/, '$1\n<div id="accountPanel" class="account-holder"></div>\n');
+rep(/(<script src="app\.js[^"]*"><\/script>\r?\n)/, '$1<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>\n<script src="/account.js?v=' + v("account.js") + '"></script>\n');
 
 fs.writeFileSync(path.join(ROOT, "index.html"), html);
 console.log("Wrote index.html from core/index.html");
