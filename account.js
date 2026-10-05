@@ -149,29 +149,151 @@
   // ---- Sync: the library on this device vs the online one ------------------
   // A local logbook linked to its online copy carries vehicle.server:
   // { id, digitalNumber, lastSeq (the last record it has), fingerprint (of
-  // its cage answers as last synced), syncedAt, status, issuingBody }.
-  // Refreshing replaces the cage with the online one and adds the online
-  // event records to its events (photos stay); a scrutineer uploads local
-  // cage changes as a signed amendment.
+  // its cage answers and photos as last synced), syncedAt, status,
+  // issuingBody }. Refreshing replaces the cage and its photos with the
+  // online ones and adds the online event records to its events; a
+  // scrutineer uploads local changes as a signed amendment.
+  // Photos: the online ones are named by their SHA-256 (see the photos
+  // migration); a local picture that's online keeps it as sha256 (and its
+  // parts snapshot's as screenshotSha256).
   ui.heads = {};          // logbook id -> { lastSeq, status } (logbook_heads)
   ui.deviceSearch = "";
   ui.busy = null;         // a long sync running: its progress text
+  const PHOTO_BUCKET = "logbook-photos";
   function stable(v) {
     if (Array.isArray(v)) return "[" + v.map(stable).join(",") + "]";
     if (v && typeof v === "object") return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + stable(v[k])).join(",") + "}";
     return JSON.stringify(v === undefined ? null : v);
   }
-  // FNV-1a over the canonical JSON: equal answers, equal fingerprint.
-  function fingerprint(answers) {
+  // FNV-1a over the canonical JSON: equal content, equal fingerprint.
+  function fingerprint(value) {
     let x = 0x811c9dc5;
-    const s = stable(answers || {});
+    const s = stable(value || {});
     for (let i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = Math.imul(x, 0x01000193) >>> 0; }
     return x.toString(16).padStart(8, "0");
   }
+  // What a sync compares: the cage answers and the photos (a photo not
+  // online yet counts by its local id).
+  function syncKey(s) {
+    return {
+      answers: s.answers || {},
+      pictures: (s.pictures || []).map((p) => [p.sha256 || "local:" + p.id, p.category || "", p.elements || []]),
+      vehicle: ["front", "rear"].map((slot) => { const v = (s.vehiclePhotos || {})[slot]; return v ? v.sha256 || "local:" + v.id : null; }),
+    };
+  }
   const lastSeq = (full) => full.records.reduce((m, r) => Math.max(m, r.seq), 0);
+  // The latest record carrying a field (the cage, the photos...).
+  const latestWith = (records, key) => (records.slice().reverse().find((r) => r.body && r.body[key]) || {}).body || null;
   // The cage as the online logbook has it now: its latest issue or amendment record's.
-  const serverCage = (records) => (records.slice().reverse().find((r) => r.body && r.body.cage) || {}).body?.cage || {};
-  function toLocal(full, existing) {
+  const serverCage = (records) => (latestWith(records, "cage") || {}).cage || {};
+
+  // ---- Photos up and down ----
+  const uploaded = new Set(); // hashes already sent this session
+  async function sha256Hex(blob) {
+    const buf = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
+    return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  const dataUrlToBlob = (url) => fetch(url).then((r) => r.blob());
+  const blobToDataUrl = (blob) => new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result); r.onerror = reject; r.readAsDataURL(blob); });
+  // known: the hash it had when last uploaded (no upload if it's the same).
+  async function uploadDataUrl(dataUrl, known) {
+    const blob = await dataUrlToBlob(dataUrl);
+    const sha = await sha256Hex(blob);
+    if (sha !== known && !uploaded.has(sha)) {
+      const { error } = await sb.storage.from(PHOTO_BUCKET).upload(sha, blob, { contentType: blob.type || "image/jpeg", upsert: false });
+      // Already there (the same photo, uploaded before): fine.
+      if (error && !/exist|duplicate/i.test(error.message || "") && String(error.statusCode) !== "409") throw error;
+      uploaded.add(sha);
+    }
+    return sha;
+  }
+  async function downloadDataUrl(sha) {
+    const { data, error } = await sb.storage.from(PHOTO_BUCKET).download(sha);
+    if (error) throw error;
+    return blobToDataUrl(data);
+  }
+  // Uploads a saved logbook's photos (those not online yet). Returns what
+  // a record lists -- { pictures, vehiclePhotos } -- and shaById (a photo's
+  // id -> its hash; "<id>:shot" for its parts snapshot) to keep locally.
+  async function uploadPhotos(s) {
+    const shaById = {}, pictures = [], vehiclePhotos = {};
+    const slots = ["front", "rear"].filter((slot) => (s.vehiclePhotos || {})[slot]);
+    const total = (s.pictures || []).length + slots.length;
+    let n = 0;
+    const step = () => { ui.busy = "Uploading photos: " + (++n) + " of " + total + "…"; render(); };
+    for (const p of s.pictures || []) {
+      step();
+      const rec = await app.getPhoto(p.id);
+      if (!rec || !rec.photo) continue;
+      const sha = p.sha256 || await uploadDataUrl(rec.photo);
+      // (The parts snapshot is redrawn when the tags change: hashed again.)
+      const shot = p.hasScreenshot && rec.screenshot ? await uploadDataUrl(rec.screenshot, p.screenshotSha256) : null;
+      shaById[p.id] = sha;
+      if (shot) shaById[p.id + ":shot"] = shot;
+      pictures.push(Object.assign({ sha256: sha, category: p.category || "overview", elements: p.elements || [] }, shot ? { screenshotSha256: shot } : {}));
+    }
+    for (const slot of slots) {
+      step();
+      const v = s.vehiclePhotos[slot];
+      const rec = await app.getPhoto(v.id);
+      if (!rec || !rec.photo) continue;
+      const sha = v.sha256 || await uploadDataUrl(rec.photo);
+      shaById[v.id] = sha;
+      vehiclePhotos[slot] = { sha256: sha };
+    }
+    ui.busy = null;
+    return { pictures, vehiclePhotos, shaById };
+  }
+  // A saved logbook with its photos' hashes, once uploaded (so a refresh
+  // from the server reuses them instead of downloading them again).
+  function withShas(s, shaById) {
+    const stamp = (p) => p && shaById[p.id] ? Object.assign({}, p, { sha256: shaById[p.id] }, shaById[p.id + ":shot"] ? { screenshotSha256: shaById[p.id + ":shot"] } : {}) : p;
+    const vp = s.vehiclePhotos || {};
+    return Object.assign({}, s, { pictures: (s.pictures || []).map(stamp), vehiclePhotos: { front: stamp(vp.front) || null, rear: stamp(vp.rear) || null } });
+  }
+  // The online photos as local ones: a photo already on this device (same
+  // hash) is reused, the others are downloaded into it.
+  async function photosToLocal(full, existing) {
+    const known = new Map();
+    (existing && existing.pictures || []).forEach((p) => { if (p.sha256) known.set(p.sha256, p); });
+    const vpKnown = new Map();
+    ["front", "rear"].forEach((slot) => { const v = existing && existing.vehiclePhotos && existing.vehiclePhotos[slot]; if (v && v.sha256) vpKnown.set(v.sha256, v); });
+    const withPictures = latestWith(full.records, "pictures");
+    const withVehicle = latestWith(full.records, "vehiclePhotos");
+    // A logbook issued without photos keeps the ones on this device.
+    let pictures = existing ? existing.pictures || [] : [];
+    let vehiclePhotos = existing ? existing.vehiclePhotos || { front: null, rear: null } : { front: null, rear: null };
+    const wanted = (withPictures ? withPictures.pictures.length : 0) + (withVehicle ? Object.values(withVehicle.vehiclePhotos).filter(Boolean).length : 0);
+    let n = 0;
+    const step = () => { ui.busy = "Downloading photos: " + (++n) + " of " + wanted + "…"; render(); };
+    if (withPictures) {
+      pictures = [];
+      for (const sp of withPictures.pictures) {
+        step();
+        const have = known.get(sp.sha256);
+        if (have) { pictures.push(Object.assign({}, have, { category: sp.category, elements: sp.elements || [] })); continue; }
+        const photo = await downloadDataUrl(sp.sha256);
+        const screenshot = sp.screenshotSha256 ? await downloadDataUrl(sp.screenshotSha256).catch(() => null) : null;
+        const id = await app.putPhoto({ photo, screenshot });
+        pictures.push(Object.assign({ id, sha256: sp.sha256, category: sp.category, elements: sp.elements || [], aiSuggestions: [], hasScreenshot: !!screenshot },
+          sp.screenshotSha256 && screenshot ? { screenshotSha256: sp.screenshotSha256 } : {}));
+      }
+    }
+    if (withVehicle) {
+      vehiclePhotos = { front: null, rear: null };
+      for (const slot of ["front", "rear"]) {
+        const sv = withVehicle.vehiclePhotos[slot];
+        if (!sv || !sv.sha256) continue;
+        step();
+        const have = vpKnown.get(sv.sha256);
+        vehiclePhotos[slot] = have || { id: await app.putPhoto({ photo: await downloadDataUrl(sv.sha256) }), sha256: sv.sha256 };
+      }
+    }
+    ui.busy = null;
+    return { pictures, vehiclePhotos };
+  }
+
+  async function toLocal(full, existing) {
     const lb = full.logbook;
     const cage = serverCage(full.records);
     const answers = Object.assign({}, cage.answers || {});
@@ -186,22 +308,22 @@
     }));
     const keptEvents = existing ? (existing.events || []).filter((e) => !String(e.id).startsWith("srv_")) : [];
     const name = (existing && existing.vehicle && existing.vehicle.name) || lb.car_name || [lb.year, lb.make, lb.model].filter(Boolean).join(" ") || lb.digital_number;
-    return {
+    const { pictures, vehiclePhotos } = await photosToLocal(full, existing);
+    const local = {
       sessionId: existing ? existing.sessionId : "srv_" + lb.id,
-      vehicle: Object.assign({}, existing && existing.vehicle, {
-        name, org: cage.org || lb.issuing_body || "none", logbookDate: String(lb.issued_at).slice(0, 10),
-        server: { id: lb.id, digitalNumber: lb.digital_number, lastSeq: lastSeq(full), fingerprint: fingerprint(answers), syncedAt: new Date().toISOString(), status: lb.status, issuingBody: lb.issuing_body },
-      }),
+      vehicle: Object.assign({}, existing && existing.vehicle, { name, org: cage.org || lb.issuing_body || "none", logbookDate: String(lb.issued_at).slice(0, 10) }),
       pathId: cage.pathId || "new_construction",
       answers,
-      pictures: existing ? existing.pictures || [] : [],
+      pictures,
       homologationPhotos: existing ? existing.homologationPhotos || [] : [],
-      vehiclePhotos: existing ? existing.vehiclePhotos || { front: null, rear: null } : { front: null, rear: null },
+      vehiclePhotos,
       events: keptEvents.concat(serverEvents),
     };
+    local.vehicle.server = { id: lb.id, digitalNumber: lb.digital_number, lastSeq: lastSeq(full), fingerprint: fingerprint(syncKey(local)), syncedAt: new Date().toISOString(), status: lb.status, issuingBody: lb.issuing_body };
+    return local;
   }
   const localFor = (id) => app.listLocal().find((s) => s.vehicle && s.vehicle.server && s.vehicle.server.id === id);
-  const locallyChanged = (s) => s.vehicle.server && fingerprint(s.answers) !== s.vehicle.server.fingerprint;
+  const locallyChanged = (s) => s.vehicle.server && fingerprint(syncKey(s)) !== s.vehicle.server.fingerprint;
   const newerOnline = (s) => { const hd = s.vehicle.server && ui.heads[s.vehicle.server.id]; return !!hd && hd.lastSeq > s.vehicle.server.lastSeq; };
   const openNow = (s) => app.currentSessionId() === s.sessionId;
   async function refreshHeads() {
@@ -214,7 +336,8 @@
       heads.forEach((x) => { ui.heads[x.id] = x; });
     } catch (e) { fail(e); }
   }
-  // Download (or refresh) a logbook into this device's library. quiet: no message, no re-render.
+  // Download (or refresh) a logbook, with its photos, into this device's
+  // library. quiet: no message, no confirmation.
   async function download(id, quiet) {
     const existing = localFor(id);
     if (existing && openNow(existing) && app.isDirty()) {
@@ -223,28 +346,31 @@
     }
     if (existing && locallyChanged(existing) && !quiet &&
         !confirm("\"" + existing.vehicle.name + "\" has changes on this device that aren't online. Refreshing replaces them with the online logbook. Refresh anyway?")) return false;
-    const full = await rpc("logbook_full", { p_id: id });
-    app.saveLocal(toLocal(full, existing));
-    ui.heads[id] = { id, lastSeq: lastSeq(full), status: full.logbook.status };
-    if (!quiet) say("pass", (existing ? "Refreshed " : "Saved to this device: ") + full.logbook.digital_number + ".");
-    return true;
+    try {
+      const full = await rpc("logbook_full", { p_id: id });
+      app.saveLocal(await toLocal(full, existing));
+      ui.heads[id] = { id, lastSeq: lastSeq(full), status: full.logbook.status };
+      if (!quiet) say("pass", (existing ? "Refreshed " : "Saved to this device: ") + full.logbook.digital_number + ".");
+      return true;
+    } finally { ui.busy = null; }
   }
   async function downloadMany(ids, label) {
     let done = 0, skipped = 0;
     for (const id of ids) {
-      ui.busy = label + " " + (done + skipped + 1) + " of " + ids.length + "…"; render();
       try {
         const s = localFor(id);
         if (s && (locallyChanged(s) || (openNow(s) && app.isDirty()))) { skipped++; continue; }
         if (await download(id, true)) done++; else skipped++;
       } catch (e) { skipped++; }
+      ui.busy = label + " " + (done + skipped) + " of " + ids.length + "…"; render();
     }
     ui.busy = null;
     say(skipped ? "fail" : "pass", done + " logbook" + (done === 1 ? "" : "s") + " on this device up to date" + (skipped ? "; " + skipped + " skipped (changes on this device not online, or couldn't be read)." : "."));
   }
-  // A scrutineer's local cage changes, uploaded as a signed amendment.
+  // A scrutineer's local changes -- cage answers and photos -- uploaded as
+  // a signed amendment.
   async function uploadChanges(s) {
-    if (openNow(s) && app.isDirty()) return say("fail", "Save the logbook open below first (Logbook library → Save), then upload.");
+    if (openNow(s) && app.isDirty()) return say("fail", "Save the logbook open below first (Save on this device), then upload.");
     try {
       const full = await rpc("logbook_full", { p_id: s.vehicle.server.id });
       if (lastSeq(full) > s.vehicle.server.lastSeq) {
@@ -253,16 +379,25 @@
       const before = serverCage(full.records).answers || {};
       const keys = new Set(Object.keys(before).concat(Object.keys(s.answers || {})));
       const changes = [...keys].filter((k) => stable(before[k]) !== stable((s.answers || {})[k])).sort();
-      if (!changes.length) return say("pass", "No cage changes to upload.");
-      const note = prompt("Upload " + changes.length + " change" + (changes.length === 1 ? "" : "s") + " to " + s.vehicle.server.digitalNumber + " as a signed amendment.\n\nWhat changed, and why? (recorded with it)", "");
+      const onlinePhotos = latestWith(full.records, "pictures");
+      const onlineVehicle = latestWith(full.records, "vehiclePhotos");
+      const photosNow = stable(syncKey(s).pictures.concat(syncKey(s).vehicle));
+      const photosOnline = stable((onlinePhotos ? onlinePhotos.pictures.map((p) => [p.sha256, p.category || "", p.elements || []]) : [])
+        .concat(["front", "rear"].map((slot) => { const v = onlineVehicle && onlineVehicle.vehiclePhotos[slot]; return v ? v.sha256 : null; })));
+      if (photosNow !== photosOnline) changes.push("photos");
+      if (!changes.length) return say("pass", "No changes to upload.");
+      const note = prompt("Upload " + changes.length + " change" + (changes.length === 1 ? "" : "s") + (changes.includes("photos") ? " (photos included)" : "") + " to " + s.vehicle.server.digitalNumber + " as a signed amendment.\n\nWhat changed, and why? (recorded with it)", "");
       if (note === null) return;
       const acc = ui.roles.accreditations.find((a) => a.body === s.vehicle.server.issuingBody) || ui.roles.accreditations[0];
-      await rpc("add_record", { p_logbook: s.vehicle.server.id, p_kind: "amendment", p_body: { cage: { pathId: s.pathId, org: s.vehicle.org, answers: s.answers }, changes, note }, p_body_id: acc.body });
+      const photos = await uploadPhotos(s);
+      await rpc("add_record", { p_logbook: s.vehicle.server.id, p_kind: "amendment", p_body_id: acc.body, p_body: {
+        cage: { pathId: s.pathId, org: s.vehicle.org, answers: s.answers }, pictures: photos.pictures, vehiclePhotos: photos.vehiclePhotos, changes, note,
+      } });
       const fresh = await rpc("logbook_full", { p_id: s.vehicle.server.id });
-      app.saveLocal(toLocal(fresh, s));
+      app.saveLocal(await toLocal(fresh, withShas(s, photos.shaById)));
       ui.heads[s.vehicle.server.id] = { lastSeq: lastSeq(fresh) };
       say("pass", "Amendment uploaded to " + s.vehicle.server.digitalNumber + ".");
-    } catch (e) { fail(e); }
+    } catch (e) { ui.busy = null; fail(e); }
   }
   // A logbook file (from this app, or the owner's Rollcage assessment tool
   // with its pictures): added to this device's library and opened.
@@ -331,7 +466,6 @@
         btn("Check for updates", () => refreshHeads().then(render), "small secondary"),
         outOfDate.length ? btn("Refresh all (" + outOfDate.length + ")", () => downloadMany(outOfDate, "Refreshing"), "small") : null,
       ),
-      ui.busy ? desc(ui.busy) : null,
       all.length > 3 ? h("div", { class: "field-row" }, [field("Search this device", input({ value: ui.deviceSearch, "data-id": "device-search", placeholder: "name, car, VIN, owner, logbook number…" }, (v) => { ui.deviceSearch = v; render(); restoreFocus("device-search"); }))]) : null,
       all.length ? h("div", { class: "account-card" }, rows.length ? rows : [desc("No logbook on this device matches.")]) : desc("No logbooks on this device yet."),
     ];
@@ -391,21 +525,30 @@
     const vehicle = { name: rc.vehicle && rc.vehicle.name, make: answer(ans, "vehicle_manufacturer"), model: answer(ans, "vehicle_model"), year: answer(ans, "vehicle_year") };
     const ownerEmail = answer(ans, "vehicle_owner_email"), ownerName = answer(ans, "vehicle_owner_name");
     const vin = answer(ans, "vehicle_vin").toUpperCase().replace(/\s/g, "");
-    if (!allowDuplicate && !confirm("Issue a logbook for " + (carLine(vehicle) || "this car") + (vin ? " (" + vin + ")" : "") + " to " + ownerEmail + "?\n\nThe logbook is recorded as it is now, and the record can't be edited afterwards -- only added to.")) return;
+    const photoCount = (rc.pictures || []).length + ["front", "rear"].filter((slot) => (rc.vehiclePhotos || {})[slot]).length;
+    if (!allowDuplicate && !confirm("Issue a logbook for " + (carLine(vehicle) || "this car") + (vin ? " (" + vin + ")" : "") + " to " + ownerEmail + "?\n\n" +
+      (photoCount ? "Its " + photoCount + " photo" + (photoCount === 1 ? "" : "s") + " will be uploaded with it. " : "") +
+      "The logbook is recorded as it is now, and the record can't be edited afterwards -- only added to.")) return;
     try {
+      // Photos first: the issue record lists them by their hash.
+      const photos = await uploadPhotos(rc);
       ui.issued = await rpc("issue_logbook", { p: {
         vin, body: rc.vehicle.org, ownerEmail, ownerName, bodyNumber: answer(ans, "vehicle_logbook_number"), vehicle, allowDuplicate: !!allowDuplicate,
         record: {
           vehicle,
           owner: { name: ownerName, email: ownerEmail, phone: answer(ans, "vehicle_owner_phone"), address: answer(ans, "vehicle_owner_address") },
           cage: { pathId: rc.pathId, org: rc.vehicle.org, answers: ans },
+          pictures: photos.pictures, vehiclePhotos: photos.vehiclePhotos,
         },
       } });
-      // The logbook on this device becomes the online logbook's local copy.
-      app.linkCurrent({ id: ui.issued.id, digitalNumber: ui.issued.digitalNumber, lastSeq: 1, fingerprint: fingerprint(ans), syncedAt: new Date().toISOString(), status: "active", issuingBody: rc.vehicle.org });
-      say("pass", "Logbook " + ui.issued.digitalNumber + " issued. The owner can now sign in with " + ownerEmail + " to see it.");
+      // The logbook on this device becomes the online logbook's local copy,
+      // its photos marked as online (their hashes).
+      const linked = withShas(rc, photos.shaById);
+      app.linkCurrent({ id: ui.issued.id, digitalNumber: ui.issued.digitalNumber, lastSeq: 1, fingerprint: fingerprint(syncKey(linked)), syncedAt: new Date().toISOString(), status: "active", issuingBody: rc.vehicle.org }, photos.shaById);
+      say("pass", "Logbook " + ui.issued.digitalNumber + " issued" + (photos.pictures.length ? " with its photos" : "") + ". The owner can now sign in with " + ownerEmail + " to see it.");
       loadAll();
     } catch (e) {
+      ui.busy = null;
       const dup = /possible duplicate of (.*)/.exec(e.message || "");
       if (dup && confirm("This looks like a car that already has a logbook: " + dup[1] + ".\n\nIssue anyway, as a different car?")) return issue(true);
       if (!dup) fail(e);
@@ -779,6 +922,24 @@
     render();
     try { ui.publicView.data = await rpc("public_logbook", { p_token: token }); } catch (e) { fail(e); }
     render();
+    // Its rollcage and vehicle photos, when the owner shows them (the
+    // public copy of the records leaves them out otherwise).
+    const d = ui.publicView.data;
+    if (!d) return;
+    const withPictures = latestWith(d.records, "pictures");
+    const withVehicle = latestWith(d.records, "vehiclePhotos");
+    const shas = [].concat(
+      withVehicle ? ["front", "rear"].map((slot) => withVehicle.vehiclePhotos[slot] && withVehicle.vehiclePhotos[slot].sha256).filter(Boolean) : [],
+      withPictures ? withPictures.pictures.map((p) => p.sha256) : []);
+    ui.publicView.photos = [];
+    for (const sha of shas) {
+      try {
+        const { data, error } = await sb.storage.from(PHOTO_BUCKET).download(sha);
+        if (error) continue;
+        ui.publicView.photos.push(URL.createObjectURL(data));
+        render();
+      } catch (e) { /* not shown */ }
+    }
   }
   function renderPublic() {
     const d = ui.publicView.data;
@@ -790,6 +951,9 @@
       h("div", { class: "account-card-title" }, [vehicleLine(v) || "Logbook", " · ", d.digitalNumber]),
       desc([d.bodyName + (d.bodyNumbers[d.body] ? " logbook " + d.bodyNumbers[d.body] : ""), d.vin ? "VIN " + d.vin : null, "status: " + d.status, "issued " + fmtDate(d.issuedAt)].filter(Boolean).join(" · ")),
       issueRec && issueRec.body.owner ? desc("Owner: " + [issueRec.body.owner.name, issueRec.body.owner.email].filter(Boolean).join(", ")) : null,
+      (ui.publicView.photos || []).length
+        ? h("div", { class: "account-photos" }, ui.publicView.photos.map((url) => h("a", { href: url, target: "_blank", rel: "noopener", title: "Open full size" }, [h("img", { src: url, alt: "" })])))
+        : null,
       h("ol", { class: "account-records" }, d.records.map((r) => h("li", {}, [
         r.kind + " -- " + new Date(r.createdAt).toLocaleDateString() + " by " + r.author + (r.license ? " (" + r.authorBody.toUpperCase() + " " + r.license + ")" : ""),
         r.body && (r.body.note || r.body.notes) ? ": " + (r.body.note || r.body.notes) : "",
@@ -927,6 +1091,8 @@
         else children.push(renderModeView(ui.mode));
       }
     }
+    // A long transfer running (photos, a batch of logbooks): its progress.
+    if (ui.busy) children.push(h("p", { class: "account-busy" }, [ui.busy]));
     if (ui.message) children.push(h("p", { class: ui.message.kind === "pass" ? "library-notice" : "verdict fail", title: "Click to dismiss", onclick: () => { ui.message = null; render(); } }, [ui.message.text]));
     holder.replaceChildren(h("div", { class: "panel account-panel" }, children));
   }

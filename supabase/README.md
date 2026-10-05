@@ -12,6 +12,7 @@ document for technical directors for the reasoning; this is phase 1
 | `migrations/20261005000000_logbooks.sql` | Tables, access rules (row level security) and the functions every write goes through |
 | `migrations/20261006000000_events_search_licenses.sql` | License expiry and renewal; optional VIN (custom builds) with the car's details kept for searching; `search_logbooks`; events with staff, competitor list and tech status, and inspection records limited to the event's staff during its window |
 | `migrations/20261007000000_sync.sql` | `logbook_heads` (which local copies are out of date, in one call) and `logbook_full` (a whole logbook with its records, authors and event names) for syncing local copies |
+| `migrations/20261008000000_photos.sql` | The private `logbook-photos` storage bucket (photos named by their SHA-256, uploaded by scrutineers only, never replaced or deleted), the `logbook_photos` index filled from records, and who may see each photo: staff, the logbook's readers, and the public link for cage and car photos when the owner allows them |
 | `../tools/test-db.mjs` | Runs the migrations in an in-process PostgreSQL and checks every role and rule: `npm install`, then `npm run test:db` |
 
 ## How it works

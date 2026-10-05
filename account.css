@@ -55,6 +55,10 @@
 .account-checklist li.todo .account-check-mark { color: var(--fail); }
 .account-more { margin-top: 10px; font-size: 0.9rem; }
 .account-more summary { cursor: pointer; color: var(--muted); }
+.account-busy { margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: var(--info-bg); color: var(--accent); font-size: 0.85rem; }
+/* The public link's photos. */
+.account-photos { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.account-photos img { width: 140px; height: 100px; object-fit: cover; border-radius: 6px; display: block; }
 @media (max-width: 640px) {
   .account-table { display: block; overflow-x: auto; }
   .account-panel input[type="text"] { min-width: 0; width: 100%; }

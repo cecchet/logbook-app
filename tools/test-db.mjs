@@ -23,6 +23,13 @@ await db.exec(`
     $$ select coalesce(nullif(current_setting('request.jwt.claims', true), ''), '{}')::jsonb $$;
   grant usage on schema auth, extensions, public to anon, authenticated;
   grant execute on function auth.jwt() to anon, authenticated;
+  -- Supabase Storage's tables (just what the access rules use).
+  create schema storage;
+  create table storage.buckets (id text primary key, name text, public boolean);
+  create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, created_at timestamptz default now());
+  alter table storage.objects enable row level security;
+  grant usage on schema storage to anon, authenticated;
+  grant select, insert, update, delete on storage.objects to anon, authenticated;
 `);
 for (const file of fs.readdirSync(migrationsDir).filter((f) => f.endsWith(".sql")).sort()) {
   await db.exec(fs.readFileSync(path.join(migrationsDir, file), "utf8"));
@@ -285,6 +292,45 @@ await check("which local copies are out of date, in one call", async () => {
   const h = heads.find((x) => x.id === issued.id);
   assert(heads.length === 2 && h.lastSeq >= 5, "heads: " + JSON.stringify(heads));
   assert((await rpc(STRANGER, "logbook_heads", [[issued.id]])).length === 0, "a stranger sees heads");
+});
+
+console.log("Photos");
+const sha = (c) => c.repeat(64);
+const [CAGE, SHOT, VEHICLE, PAPER] = [sha("a"), sha("b"), sha("c"), sha("d")];
+const upload = (email, name) => as(email, (q) => q("insert into storage.objects (bucket_id, name) values ('logbook-photos', $1)", [name]));
+const canSee = (email, name) => as(email, (q) => q("select name from storage.objects where bucket_id = 'logbook-photos' and name = $1", [name])).then((r) => r.length === 1);
+let photoBook;
+await check("a scrutineer uploads photos, named by their hash", async () => {
+  for (const name of [CAGE, SHOT, VEHICLE, PAPER]) await upload(S2, name);
+});
+await refused("a photo name that isn't a hash", () => upload(S2, "../other.jpg"), /row-level security/);
+await refused("a non-scrutineer can't upload", () => upload(OWNER, sha("e")), /row-level security/);
+await check("a logbook issued with its photos indexes them", async () => {
+  photoBook = await rpc(S2, "issue_logbook", [{ vin: "WVWZZZ1JZXW000002", body: "ara", ownerEmail: "photo@car.test", vehicle: { make: "VW" }, record: {
+    pictures: [{ sha256: CAGE, screenshotSha256: SHOT, category: "overview", elements: [] }],
+    vehiclePhotos: { front: { sha256: VEHICLE }, rear: null }, paperPages: [{ sha256: PAPER }] } }]);
+  const rows = (await db.query("select kind, count(*)::int as n from logbook_photos where logbook_id = $1 group by kind order by kind", [photoBook.id])).rows;
+  assert(JSON.stringify(rows) === JSON.stringify([{ kind: "cage", n: 2 }, { kind: "paper", n: 1 }, { kind: "vehicle", n: 1 }]), JSON.stringify(rows));
+});
+await check("its owner can see its photos", async () => {
+  for (const name of [CAGE, SHOT, VEHICLE, PAPER]) assert(await canSee("photo@car.test", name), "owner can't see " + name.slice(0, 4));
+});
+await check("a signed-in stranger can't see the paper pages", async () => {
+  assert(!(await canSee(STRANGER, PAPER)), "stranger sees the paper page");
+});
+await check("the public link shows the rollcage and vehicle photos, not the paper pages", async () => {
+  assert(await canSee(null, CAGE) && await canSee(null, VEHICLE), "public can't see the cage photos");
+  assert(!(await canSee(null, PAPER)), "public sees the paper page");
+});
+await check("...until the owner hides the photos", async () => {
+  await rpc("photo@car.test", "set_privacy", [photoBook.id, { cage_photos: false }, true]);
+  assert(!(await canSee(null, CAGE)), "public still sees the cage photo");
+});
+await check("a stored photo can't be changed or deleted", async () => {
+  await as(S2, (q) => q("update storage.objects set name = $1 where name = $2", [sha("f"), CAGE]));
+  await as(S2, (q) => q("delete from storage.objects where name = $1", [CAGE]));
+  const n = (await db.query("select count(*)::int as n from storage.objects where name = $1", [CAGE])).rows[0].n;
+  assert(n === 1, "the photo was changed or deleted");
 });
 
 console.log("Revoking");
