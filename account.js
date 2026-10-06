@@ -179,6 +179,7 @@
       answers: s.answers || {},
       pictures: (s.pictures || []).map((p) => [p.sha256 || "local:" + p.id, p.category || "", p.elements || []]),
       vehicle: ["front", "rear"].map((slot) => { const v = (s.vehiclePhotos || {})[slot]; return v ? v.sha256 || "local:" + v.id : null; }),
+      paper: (s.paperLogbookPhotos || []).map((p) => p.sha256 || "local:" + p.id),
     };
   }
   const lastSeq = (full) => full.records.reduce((m, r) => Math.max(m, r.seq), 0);
@@ -216,9 +217,9 @@
   // a record lists -- { pictures, vehiclePhotos } -- and shaById (a photo's
   // id -> its hash; "<id>:shot" for its parts snapshot) to keep locally.
   async function uploadPhotos(s) {
-    const shaById = {}, pictures = [], vehiclePhotos = {};
+    const shaById = {}, pictures = [], vehiclePhotos = {}, paperPages = [];
     const slots = ["front", "rear"].filter((slot) => (s.vehiclePhotos || {})[slot]);
-    const total = (s.pictures || []).length + slots.length;
+    const total = (s.pictures || []).length + slots.length + (s.paperLogbookPhotos || []).length;
     let n = 0;
     const step = () => { ui.busy = "Uploading photos: " + (++n) + " of " + total + "…"; render(); };
     for (const p of s.pictures || []) {
@@ -241,15 +242,25 @@
       shaById[v.id] = sha;
       vehiclePhotos[slot] = { sha256: sha };
     }
+    // The paper logbook's pages.
+    for (const p of s.paperLogbookPhotos || []) {
+      step();
+      const rec = await app.getPhoto(p.id);
+      if (!rec || !rec.photo) continue;
+      const sha = p.sha256 || await uploadDataUrl(rec.photo);
+      shaById[p.id] = sha;
+      paperPages.push({ sha256: sha });
+    }
     ui.busy = null;
-    return { pictures, vehiclePhotos, shaById };
+    return { pictures, vehiclePhotos, paperPages, shaById };
   }
   // A saved logbook with its photos' hashes, once uploaded (so a refresh
   // from the server reuses them instead of downloading them again).
   function withShas(s, shaById) {
     const stamp = (p) => p && shaById[p.id] ? Object.assign({}, p, { sha256: shaById[p.id] }, shaById[p.id + ":shot"] ? { screenshotSha256: shaById[p.id + ":shot"] } : {}) : p;
     const vp = s.vehiclePhotos || {};
-    return Object.assign({}, s, { pictures: (s.pictures || []).map(stamp), vehiclePhotos: { front: stamp(vp.front) || null, rear: stamp(vp.rear) || null } });
+    return Object.assign({}, s, { pictures: (s.pictures || []).map(stamp), vehiclePhotos: { front: stamp(vp.front) || null, rear: stamp(vp.rear) || null },
+      paperLogbookPhotos: (s.paperLogbookPhotos || []).map(stamp) });
   }
   // The online photos as local ones: a photo already on this device (same
   // hash) is reused, the others are downloaded into it.
@@ -289,8 +300,20 @@
         vehiclePhotos[slot] = have || { id: await app.putPhoto({ photo: await downloadDataUrl(sv.sha256) }), sha256: sv.sha256 };
       }
     }
+    // The paper logbook's pages.
+    const withPaper = latestWith(full.records, "paperPages");
+    let paperLogbookPhotos = existing ? existing.paperLogbookPhotos || [] : [];
+    if (withPaper) {
+      const paperKnown = new Map(paperLogbookPhotos.filter((p) => p.sha256).map((p) => [p.sha256, p]));
+      paperLogbookPhotos = [];
+      for (const sp of withPaper.paperPages) {
+        if (!sp || !sp.sha256) continue;
+        ui.busy = "Downloading the paper logbook pages…"; render();
+        paperLogbookPhotos.push(paperKnown.get(sp.sha256) || { id: await app.putPhoto({ photo: await downloadDataUrl(sp.sha256) }), sha256: sp.sha256 });
+      }
+    }
     ui.busy = null;
-    return { pictures, vehiclePhotos };
+    return { pictures, vehiclePhotos, paperLogbookPhotos };
   }
 
   async function toLocal(full, existing) {
@@ -306,18 +329,31 @@
       chiefName: "", chiefLicense: "", damage: null, fromServer: true,
       notes: r.kind === "dnf" ? "DNF" + (r.body && r.body.reason ? ": " + r.body.reason : "") : r.kind === "post_event" ? "Post-event inspection" : "",
     }));
-    const keptEvents = existing ? (existing.events || []).filter((e) => !String(e.id).startsWith("srv_")) : [];
+    // An existing logbook's past events, from its issue record (transcribed
+    // from the paper logbook when it was issued).
+    const issueRec = full.records.find((r) => r.kind === "issue");
+    const issueBody = (issueRec && issueRec.body) || {};
+    const pastEvents = (issueBody.pastEvents || []).map((e, i) => Object.assign({}, e, { id: "srv_" + issueRec.id + "_" + i, fromServer: true }));
+    const uploadedIds = new Set((issueBody.pastEvents || []).map((e) => e.localId));
+    const keptEvents = existing ? (existing.events || []).filter((e) => !String(e.id).startsWith("srv_") && !uploadedIds.has(e.id)) : [];
     const name = (existing && existing.vehicle && existing.vehicle.name) || lb.car_name || [lb.year, lb.make, lb.model].filter(Boolean).join(" ") || lb.digital_number;
-    const { pictures, vehiclePhotos } = await photosToLocal(full, existing);
+    const { pictures, vehiclePhotos, paperLogbookPhotos } = await photosToLocal(full, existing);
+    const ex = issueBody.existingLogbook;
     const local = {
       sessionId: existing ? existing.sessionId : "srv_" + lb.id,
-      vehicle: Object.assign({}, existing && existing.vehicle, { name, org: cage.org || lb.issuing_body || "none", logbookDate: String(lb.issued_at).slice(0, 10) }),
+      vehicle: Object.assign({}, existing && existing.vehicle, {
+        name, org: cage.org || lb.issuing_body || "none",
+        // An existing logbook keeps its original issue date.
+        logbookDate: (ex && ex.originalIssueDate) || String(lb.issued_at).slice(0, 10),
+        logbookPath: ex ? "existing" : "new_construction",
+      }),
       pathId: cage.pathId || "new_construction",
       answers,
       pictures,
       homologationPhotos: existing ? existing.homologationPhotos || [] : [],
+      paperLogbookPhotos,
       vehiclePhotos,
-      events: keptEvents.concat(serverEvents),
+      events: pastEvents.concat(keptEvents, serverEvents),
     };
     local.vehicle.server = { id: lb.id, digitalNumber: lb.digital_number, lastSeq: lastSeq(full), fingerprint: fingerprint(syncKey(local)), syncedAt: new Date().toISOString(), status: lb.status, issuingBody: lb.issuing_body };
     return local;
@@ -385,13 +421,16 @@
       const photosOnline = stable((onlinePhotos ? onlinePhotos.pictures.map((p) => [p.sha256, p.category || "", p.elements || []]) : [])
         .concat(["front", "rear"].map((slot) => { const v = onlineVehicle && onlineVehicle.vehiclePhotos[slot]; return v ? v.sha256 : null; })));
       if (photosNow !== photosOnline) changes.push("photos");
+      const onlinePaper = latestWith(full.records, "paperPages");
+      if (stable(syncKey(s).paper) !== stable(onlinePaper ? onlinePaper.paperPages.map((p) => p.sha256) : [])) changes.push("paper logbook pages");
       if (!changes.length) return say("pass", "No changes to upload.");
-      const note = prompt("Upload " + changes.length + " change" + (changes.length === 1 ? "" : "s") + (changes.includes("photos") ? " (photos included)" : "") + " to " + s.vehicle.server.digitalNumber + " as a signed amendment.\n\nWhat changed, and why? (recorded with it)", "");
+      const note = prompt("Upload " + changes.length + " change" + (changes.length === 1 ? "" : "s") + (changes.includes("photos") || changes.includes("paper logbook pages") ? " (photos included)" : "") + " to " + s.vehicle.server.digitalNumber + " as a signed amendment.\n\nWhat changed, and why? (recorded with it)", "");
       if (note === null) return;
       const acc = ui.roles.accreditations.find((a) => a.body === s.vehicle.server.issuingBody) || ui.roles.accreditations[0];
       const photos = await uploadPhotos(s);
       await rpc("add_record", { p_logbook: s.vehicle.server.id, p_kind: "amendment", p_body_id: acc.body, p_body: {
-        cage: { pathId: s.pathId, org: s.vehicle.org, answers: s.answers }, pictures: photos.pictures, vehiclePhotos: photos.vehiclePhotos, changes, note,
+        cage: { pathId: s.pathId, org: s.vehicle.org, answers: s.answers }, pictures: photos.pictures, vehiclePhotos: photos.vehiclePhotos,
+        ...(changes.includes("paper logbook pages") ? { paperPages: photos.paperPages } : {}), changes, note,
       } });
       const fresh = await rpc("logbook_full", { p_id: s.vehicle.server.id });
       app.saveLocal(await toLocal(fresh, withShas(s, photos.shaById)));
@@ -525,9 +564,18 @@
     const vehicle = { name: rc.vehicle && rc.vehicle.name, make: answer(ans, "vehicle_manufacturer"), model: answer(ans, "vehicle_model"), year: answer(ans, "vehicle_year") };
     const ownerEmail = answer(ans, "vehicle_owner_email"), ownerName = answer(ans, "vehicle_owner_name");
     const vin = answer(ans, "vehicle_vin").toUpperCase().replace(/\s/g, "");
-    const photoCount = (rc.pictures || []).length + ["front", "rear"].filter((slot) => (rc.vehiclePhotos || {})[slot]).length;
-    if (!allowDuplicate && !confirm("Issue a logbook for " + (carLine(vehicle) || "this car") + (vin ? " (" + vin + ")" : "") + " to " + ownerEmail + "?\n\n" +
-      (photoCount ? "Its " + photoCount + " photo" + (photoCount === 1 ? "" : "s") + " will be uploaded with it. " : "") +
+    const photoCount = (rc.pictures || []).length + ["front", "rear"].filter((slot) => (rc.vehiclePhotos || {})[slot]).length + (rc.paperLogbookPhotos || []).length;
+    // An existing logbook: already issued on paper -- its original issue
+    // date and past events come along (each past event keeps its local id,
+    // so this device's copy doesn't list it twice once refreshed).
+    const existingBook = app.isExistingLogbook();
+    const pastEvents = existingBook ? (rc.events || []).map((e) => ({
+      localId: e.id, name: e.name || "", date: e.date || "", driver: e.driver || "", techResult: e.techResult || "", techNotes: e.techNotes || "",
+      scrutineerName: e.scrutineerName || "", scrutineerLicense: e.scrutineerLicense || "", chiefName: e.chiefName || "", chiefLicense: e.chiefLicense || "",
+      notes: e.notes || "", damage: e.damage && e.damage.present ? { present: true, files: e.damage.files || [] } : null,
+    })) : [];
+    if (!allowDuplicate && !confirm((existingBook ? "Add the existing logbook of " : "Issue a logbook for ") + (carLine(vehicle) || "this car") + (vin ? " (" + vin + ")" : "") + " to " + ownerEmail + "?\n\n" +
+      (photoCount ? "Its " + photoCount + " photo" + (photoCount === 1 ? "" : "s") + " will be uploaded with it" + (pastEvents.length ? ", with its " + pastEvents.length + " past event" + (pastEvents.length === 1 ? "" : "s") : "") + ". " : "") +
       "The logbook is recorded as it is now, and the record can't be edited afterwards -- only added to.")) return;
     try {
       // Photos first: the issue record lists them by their hash.
@@ -539,13 +587,15 @@
           owner: { name: ownerName, email: ownerEmail, phone: answer(ans, "vehicle_owner_phone"), address: answer(ans, "vehicle_owner_address") },
           cage: { pathId: rc.pathId, org: rc.vehicle.org, answers: ans },
           pictures: photos.pictures, vehiclePhotos: photos.vehiclePhotos,
+          ...(photos.paperPages.length ? { paperPages: photos.paperPages } : {}),
+          ...(existingBook ? { existingLogbook: { originalIssueDate: (rc.vehicle && rc.vehicle.logbookDate) || "" }, pastEvents } : {}),
         },
       } });
       // The logbook on this device becomes the online logbook's local copy,
       // its photos marked as online (their hashes).
       const linked = withShas(rc, photos.shaById);
       app.linkCurrent({ id: ui.issued.id, digitalNumber: ui.issued.digitalNumber, lastSeq: 1, fingerprint: fingerprint(syncKey(linked)), syncedAt: new Date().toISOString(), status: "active", issuingBody: rc.vehicle.org }, photos.shaById);
-      say("pass", "Logbook " + ui.issued.digitalNumber + " issued" + (photos.pictures.length ? " with its photos" : "") + ". The owner can now sign in with " + ownerEmail + " to see it.");
+      say("pass", (existingBook ? "Existing logbook added as " : "Logbook ") + ui.issued.digitalNumber + (existingBook ? "" : " issued") + (photos.pictures.length || photos.paperPages.length ? " with its photos" : "") + (pastEvents.length ? " and past events" : "") + ". The owner can now sign in with " + ownerEmail + " to see it.");
       loadAll();
     } catch (e) {
       ui.busy = null;
