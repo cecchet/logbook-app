@@ -1286,10 +1286,11 @@
       (myRole === "chief" ? " -- add them (Add competitor) to inspect them." : " -- the chief scrutineer adds them.")));
     // The chief scrutineer can add a late entry from here too.
     out.push(addButtons, addForms, filterBox);
-    out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["To inspect (" + toInspect.length + ")"]), toInspect.length ? toInspect.map((x) => entryRow(x, true)) : desc("None.")]));
+    // Cars waiting for sign-off first (a click from done), then the ones still to inspect.
     if (toSign.length) out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Checked -- waiting for sign-off (" + toSign.length + ")"]),
       desc(open ? "Every line has a result: open the sheet and finish it as Passed or Failed." : "Every line has a result. Passed / Failed can be recorded once scrutineering opens (" + fmtDate(ev.scrutineering_starts_on) + ")."),
       toSign.map((x) => entryRow(x, true))]));
+    out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["To inspect (" + toInspect.length + ")"]), toInspect.length ? toInspect.map((x) => entryRow(x, true)) : desc("None.")]));
     out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Passed (" + passed.length + ")"]), passed.length ? passed.map((x) => entryRow(x, true)) : desc("None yet.")]));
     if (failed.length) out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Failed (" + failed.length + ")"]), failed.map((x) => entryRow(x, true))]));
     return out;
