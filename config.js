@@ -26,6 +26,43 @@ window.APP_CONFIG = {
   eventsOnlyWhenIssued: true,
 };
 
+// Two sites from this one app, by address: logbook.frogracing.us (logbooks:
+// create, the library) and scrutineering.frogracing.us (scrutineering, event
+// admin); both manage the sanctioning bodies and their scrutineers. Locally,
+// ?site=scrutineering (or ?site=logbook) picks one, for this browser tab.
+window.APP_SITE = (function () {
+  let site = new URLSearchParams(location.search).get("site");
+  try {
+    if (site) sessionStorage.setItem("app-site", site);
+    else site = sessionStorage.getItem("app-site");
+  } catch (e) { /* no storage: the address decides */ }
+  if (site !== "logbook" && site !== "scrutineering") site = /^scrutineering\./.test(location.hostname) ? "scrutineering" : "logbook";
+  return site;
+})();
+if (window.APP_SITE === "scrutineering") {
+  Object.assign(window.APP_CONFIG, { appName: "Scrutineering", tourSeenKey: "scrutineering-app-tour-seen" });
+  // The page's own name: its title, header, home-screen name and install manifest.
+  document.addEventListener("DOMContentLoaded", () => {
+    document.title = "Scrutineering";
+    const h1 = document.querySelector("header h1, h1");
+    const text = h1 && [...h1.childNodes].find((n) => n.nodeType === 3 && /Digital logbooks/.test(n.textContent));
+    if (text) text.textContent = text.textContent.replace("Digital logbooks", "Scrutineering");
+    const apple = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (apple) apple.setAttribute("content", "Scrutineering");
+    const manifest = document.querySelector('link[rel="manifest"]');
+    if (manifest) manifest.setAttribute("href", "/manifest-scrutineering.webmanifest?v=1");
+    // Its logo: PassTech's "Check my gear" frog (icons/scrutineering-*).
+    const logo = h1 && h1.querySelector("img.app-logo");
+    if (logo) logo.setAttribute("src", "/icons/scrutineering-icon-192.png?v=1");
+    document.querySelectorAll('link[rel="icon"]').forEach((l) =>
+      l.setAttribute("href", l.getAttribute("sizes") === "32x32" ? "/icons/scrutineering-favicon-32.png?v=1" : "/icons/scrutineering-icon-192.png?v=1"));
+    const touch = document.querySelector('link[rel="apple-touch-icon"]');
+    if (touch) touch.setAttribute("href", "/icons/scrutineering-apple-touch-icon.png?v=1");
+    // The roll cage app's own header links (its tutorial video, tour and manual) aren't this site's.
+    ["tutorialVideoLink", "appTourLink", "userManualLink"].forEach((id) => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
+  });
+}
+
 // The central logbook repository (Supabase -- see supabase/README.md). The
 // anon key is public by design: the database's access rules protect the
 // data. Never put the service_role key here.

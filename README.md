@@ -17,6 +17,24 @@ Sanctioning bodies: NASA Rally Sport, ARA and CARS (full FIA 253 checklist,
 new construction or grandfathered rules), plus SCCA ProRally, Rally America
 and FIA passport (documentation only for now — no automatic compliance check).
 
+## Two sites, one app
+
+The same deployment serves two addresses, and the address picks the site
+(`config.js`, `window.APP_SITE`):
+
+- **logbook.frogracing.us** — Digital logbooks: create a new logbook, the
+  logbook library, sanctioning bodies.
+- **scrutineering.frogracing.us** — Scrutineering: each car's tech sheet at
+  an event, event admin (events, staff, tech sheets, competitors and the
+  MotorsportReg import), sanctioning bodies.
+
+Both share the accounts, scrutineer accreditations and data (one Supabase
+project); each home links to the other site. To add the second address, add
+`scrutineering.frogracing.us` as a domain of this Vercel project (and its DNS
+record), and in Supabase add it under Authentication → URL Configuration →
+Redirect URLs. Locally, `?site=scrutineering` (or `?site=logbook`) picks the
+site for that browser tab.
+
 ## How it's built
 
 This app is the shared Frog Racing roll cage app (the

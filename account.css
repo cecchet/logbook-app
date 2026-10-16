@@ -232,3 +232,5 @@
 /* A tech sheet's visibility: Private (its events only) or Public (PassTech's generic sheet). */
 .techsheet-visibility { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; margin: 6px 0 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9rem; }
 .techsheet-visibility label { cursor: pointer; }
+/* The other site (Digital logbooks / Scrutineering), under the home cards. */
+.account-other-site { margin: 14px 0 0; font-size: 0.9rem; color: var(--muted); }

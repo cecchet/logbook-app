@@ -1274,7 +1274,7 @@
     const passed = entries.filter((x) => x.entry.tech_status === "passed");
     const failed = entries.filter((x) => x.entry.tech_status === "failed");
     const withLogbook = b.entries.filter((x) => x.logbook);
-    if (withLogbook.length) {
+    if (withLogbook.length && SITE === "logbook") {
       out.push(actions(btn("Download this event's logbooks to this device (" + withLogbook.length + ")",
         () => downloadMany(withLogbook.map((x) => x.logbook.id), "Downloading"), "small secondary")));
     }
@@ -1605,19 +1605,31 @@
 
   // ---- Home: the modes ------------------------------------------------------
   // Like PassTech's landing page: one card per mode the person can use.
+  // Two sites from this app (config.js, window.APP_SITE): Digital logbooks
+  // (create, the library) and Scrutineering (scrutineering at an event, event
+  // admin). Both manage the sanctioning bodies and their scrutineers.
+  const SITE = window.APP_SITE === "scrutineering" ? "scrutineering" : "logbook";
   const MODES = {
     create: { title: "Create a new logbook", text: "Record a car's roll cage after its inspection, then issue its logbook online." },
     library: { title: "Logbook library", text: "Logbooks on this device and online: search, open, download, sync, delete." },
-    event: { title: "Event mode", text: "Scrutineering at an event: download its logbooks, inspect each car, track what's left." },
-    events: { title: "Events", text: "Organize events: create them, their staff and tech sheet, and their competitors." },
+    event: { title: "Scrutineering", text: "At an event: each car's tech sheet, its inspection and sign-off, and what's left to inspect." },
+    events: { title: "Event admin", text: "Organize events: create them, their staff and tech sheets, and their competitors (MotorsportReg import)." },
     bodies: { title: "Sanctioning bodies", text: "Technical directors, scrutineers and their licenses, and each body's tech sheets." },
   };
+  // The other site's address (locally: this page with ?site=).
+  function otherSite() {
+    const other = SITE === "logbook" ? "scrutineering" : "logbook";
+    if (/^(logbook|scrutineering)\./.test(location.hostname)) return location.protocol + "//" + location.hostname.replace(/^(logbook|scrutineering)\./, other + ".") + "/";
+    return location.pathname + "?site=" + other;
+  }
 
   function availableModes() {
     const r = ui.roles;
     const staff = r && r.accreditations.length > 0;
     const organizer = r && (r.admin || r.accreditations.some((a) => a.role === "technical_director"));
-    return ["create", "library"].concat(staff ? ["event"] : [], organizer ? ["events", "bodies"] : []);
+    return SITE === "scrutineering"
+      ? (staff ? ["event"] : []).concat(organizer ? ["events", "bodies"] : [])
+      : ["create", "library"].concat(organizer ? ["bodies"] : []);
   }
   // The home screen shows the modes only; Event and Admin modes don't use
   // the logbook editor, and the library starts on its list -- each hides it.
@@ -1631,12 +1643,21 @@
   function renderHome() {
     const open = ui.events.filter((e) => e.open && e.myRole).length;
     const badge = { library: ui.garage.length ? ui.garage.length + " in your garage" : null, event: open ? open + " open now" : null };
-    return h("div", { class: "account-modes" }, availableModes().map((m, i) => h("button", { type: "button", class: "account-mode", onclick: () => goMode(m) }, [
-      h("span", { class: "account-mode-number" }, [String(i + 1)]),
-      h("span", { class: "account-mode-title" }, [MODES[m].title]),
-      h("span", { class: "account-mode-text" }, [MODES[m].text]),
-      badge[m] ? h("span", { class: "badge info" }, [badge[m]]) : null,
-    ])));
+    const modes = availableModes();
+    const staff = ui.roles && ui.roles.accreditations.length > 0;
+    // The other site, for who uses it: scrutineers from here; anyone for logbooks from there.
+    const link = SITE === "logbook"
+      ? (staff ? ["Scrutineering and event admin are on the Scrutineering site", "Open Scrutineering"] : null)
+      : ["Creating and opening logbooks is on the Digital logbooks site", "Open Digital logbooks"];
+    return [
+      modes.length ? h("div", { class: "account-modes" }, modes.map((m, i) => h("button", { type: "button", class: "account-mode", onclick: () => goMode(m) }, [
+        h("span", { class: "account-mode-number" }, [String(i + 1)]),
+        h("span", { class: "account-mode-title" }, [MODES[m].title]),
+        h("span", { class: "account-mode-text" }, [MODES[m].text]),
+        badge[m] ? h("span", { class: "badge info" }, [badge[m]]) : null,
+      ]))) : desc("This site is for scrutineers and event organizers: ask your sanctioning body's technical director for a scrutineer accreditation."),
+      link ? h("p", { class: "account-other-site" }, [link[0] + " -- ", h("a", { href: otherSite() }, [link[1] + " →"])]) : null,
+    ];
   }
   function modeHeader(m) {
     return h("div", { class: "account-mode-header" }, [btn("← Home", () => goMode("home"), "small secondary"), h("h2", {}, [MODES[m].title])]);
