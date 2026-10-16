@@ -1,0 +1,267 @@
+{
+  "format": 1,
+  "id": "cars-2022",
+  "bodyId": "cars",
+  "passtechRulesetIds": ["cars-performance-rally", "cars-rally-sprint"],
+  "title": "CARS Scrutineering Form",
+  "revision": "D102_2022",
+  "source": {
+    "form": "Canadian Association of Rallysport Scrutineering Form (D102_2022)",
+    "rules": "CARS Rule Book (National Rally Regulations and Technical Rules), 2026-03 (updated 2026-05-22)"
+  },
+  "instructions": "Overall result: Accepted or Rejected. This vehicle has been inspected for compliance only with CARS regulations. No guarantee regarding the safety of this vehicle is implied.",
+  "header": [
+    { "id": "car_number", "label": "Car / Voiture", "type": "text", "prefill": "car_number", "required": true },
+    { "id": "class", "label": "Car class / Classe", "type": "text", "prefill": "class", "required": true },
+    { "id": "national_regional", "label": "National / Regional", "type": "choice", "options": ["National", "Regional"] },
+    { "id": "driver", "label": "Driver / Pilote", "type": "text", "prefill": "driver", "required": true },
+    { "id": "logbook_number", "label": "Logbook #", "type": "text", "prefill": "logbook_number" },
+    { "id": "logbook_body", "label": "Logbook issuer", "type": "choice", "options": ["CARS/ASN", "NASA", "ARA", "RA", "Other FIA"], "prefill": "logbook_body" },
+    { "id": "codriver", "label": "Co-Driver / Co-pilote", "type": "text", "prefill": "codriver", "required": true },
+    { "id": "vin", "label": "VIN #", "type": "text", "prefill": "vin" },
+    { "id": "plate", "label": "License Plate #", "type": "text", "prefill": "plate" }
+  ],
+  "sections": [
+    {
+      "id": "lights",
+      "title": "Lights",
+      "items": [
+        { "id": "auxiliary_lights", "label": "Auxiliary lights", "accepts": "Auxiliary lights fitted in bumper/grille/front bodywork with openings fully filled by the lights", "rule": "CARS TR 12.4.3.2", "allowNA": true },
+        { "id": "single_switch_driving_lights", "label": "Single switch driving lights", "accepts": "One switch turns off all high beams and auxiliary lights, leaving low beams on", "rule": "CARS TR 12.4.3.3", "allowNA": true }
+      ]
+    },
+    {
+      "id": "personal",
+      "title": "Driver / Co-Driver",
+      "items": [
+        {
+          "id": "helmet",
+          "label": "Helmet",
+          "perOccupant": true,
+          "gear": "helmet",
+          "accepts": "FIA 8860-2010 (expires 2028-12-31), 8859-2015, 8860-2018 or 8859-2024; Snell SA2020 or SA2025. Snell SA2010/SAH2010/SA2015 on the form are no longer accepted for Performance Rally (Rally Sprint also accepts Snell SA2005 or newer). Unmodified",
+          "rule": "CARS NRR 11.1.6",
+          "options": ["SNELL SA2010", "SNELL SAH2010", "SNELL SA2015", "SNELL SA2020", "FIA 8860-2010", "FIA 8859-2015", "FIA 8860-2018"]
+        },
+        {
+          "id": "helmet_identification",
+          "label": "Helmet identification",
+          "perOccupant": true,
+          "accepts": "Competitor's name clearly marked on the helmet",
+          "rule": "CARS NRR 11.1.6"
+        },
+        {
+          "id": "hnr",
+          "label": "Head & Neck restraint system",
+          "perOccupant": true,
+          "gear": "hnr",
+          "accepts": "HANS FIA 8858-2002 or 8858-2010, Hybrid FIA 8858-2010, or SFI 38.1 with conformance label less than 5 years old",
+          "rule": "CARS NRR 11.1.7",
+          "options": ["HANS 8858-2002", "HANS 8858-2010", "Hybrid 8858-2010"]
+        },
+        {
+          "id": "hnr_tether",
+          "label": "Tether FIA 8858",
+          "perOccupant": true,
+          "accepts": "FIA devices use FIA-homologated tethers with a sewn FIA 8858 label",
+          "rule": "CARS NRR 11.1.7"
+        },
+        {
+          "id": "suit",
+          "label": "Driving suit",
+          "perOccupant": true,
+          "gear": "firesuit",
+          "accepts": "FIA 8856-2000, 8856-2018 or FIA 1986; SFI 3-2A/5; SFI 3-2A/1 only with approved fire-resistant underwear; clean, neck to ankles and wrists, no holes or frays",
+          "rule": "CARS NRR 11.1.8",
+          "options": ["FIA 8856-2000", "FIA 1986", "FIA 8856-2018", "SFI 3-2A/5", "SFI 3-2A/1"]
+        },
+        {
+          "id": "undergarments",
+          "label": "Undergarments",
+          "perOccupant": true,
+          "gear": "undergarment",
+          "accepts": "Approved fire-resistant underwear when the suit is SFI 3-2A/1",
+          "rule": "CARS NRR 11.1.8",
+          "allowNA": true
+        },
+        {
+          "id": "belts",
+          "label": "Belts",
+          "perOccupant": true,
+          "gear": "belts_harness",
+          "accepts": "Unmodified 5- or 6-point FIA 8853/98 or 8853-2016 (not past label expiration) or SFI 16.1/16.5 (manufacture date less than 2 years); no mixed parts. Rally Sprint: min. 5-point in good condition, no expiry restriction",
+          "rule": "CARS TR 12.3.3.1",
+          "options": ["FIA 8853/98", "FIA 8853-2016", "SFI 16.1 (<2 yrs)", "SFI 16.5 (<2 yrs)"],
+          "fields": [{ "id": "date", "label": "Date", "type": "date" }]
+        },
+        {
+          "id": "belt_installation",
+          "label": "Belt installation",
+          "perOccupant": true,
+          "accepts": "Lap and crotch straps through the seat, not over the sides; straps protected from sharp edges; anchorages per FIA/SFI guidance",
+          "rule": "CARS TR 12.3.3.3, 12.3.3.4"
+        },
+        {
+          "id": "seat",
+          "label": "Seat",
+          "perOccupant": true,
+          "gear": "seat",
+          "accepts": "FIA 8855-1999, 8862-2009 or 8855-2021, not modified; no hinged-back or OEM seats; replace at 10 years from manufacture (Rally Sprint: fixed-back one-piece FIA seat, no expiry)",
+          "rule": "CARS TR 12.3.12.1",
+          "options": ["FIA 8855-1999", "FIA 8862-2009"]
+        },
+        {
+          "id": "seat_mounting",
+          "label": "Seat mounting elements",
+          "perOccupant": true,
+          "accepts": "Mounted per FIA App. J Art. 253 Art. 16; no movement possible in an accident",
+          "rule": "CARS TR 12.3.12.2"
+        },
+        {
+          "id": "seat_structure",
+          "label": "Seat structure to chassis",
+          "perOccupant": true,
+          "accepts": "Seat securely attached to the floor/chassis; end plates bolted or fully welded",
+          "rule": "CARS TR 12.3.12.2"
+        }
+      ]
+    },
+    {
+      "id": "cage",
+      "title": "Cage",
+      "items": [
+        {
+          "id": "cage_padding",
+          "label": "Roll cage padding",
+          "accepts": "FIA 8857-2001 Type A or SFI 45.1 wherever a helmet could contact the cage; flame-retardant padding where bodies could contact it",
+          "rule": "CARS TR 12.3.2.6",
+          "options": ["FIA 8857 2001, TYPE A", "SFI 45.1"]
+        }
+      ]
+    },
+    {
+      "id": "motorisation",
+      "title": "Motorisation",
+      "items": [
+        {
+          "id": "turbo_restrictor",
+          "label": "Turbo & restrictor",
+          "accepts": "Forced induction inlet per class (Table A: O4WD 34 mm, 2.5 bar abs), min. 3 mm wide, within 50 mm of the compressor blades",
+          "rule": "CARS TR 12.4.10, 12.4.13",
+          "allowNA": true,
+          "options": ["N/A", "34mm", "32mm"]
+        },
+        {
+          "id": "turbo_seal",
+          "label": "Turbo seal",
+          "accepts": "Induction system sealed with wire and CARS seal so the restrictor cannot be reached without breaking it",
+          "rule": "CARS TR 12.4.10",
+          "allowNA": true,
+          "options": ["Marked", "Lead seal"],
+          "fields": [{ "id": "seal_number", "label": "CARS No.", "type": "text" }]
+        },
+        {
+          "id": "exhaust",
+          "label": "Exhaust",
+          "accepts": "Functioning catalytic converter (unless registered before one was required); max. 86 dBA at 15 m with engine at 3500 rpm, stationary",
+          "rule": "CARS TR 12.4.5",
+          "options": ["Catalyzer", "dB @3500RPM / 15 meters"],
+          "fields": [{ "id": "sound_level", "label": "Sound level", "type": "number", "unit": "dBA" }]
+        },
+        {
+          "id": "fuel_tank_lines",
+          "label": "Fuel tank & lines",
+          "gear": "fuel_cell",
+          "accepts": "Original tank, or FIA/SFI fuel cell vented outside with original filler sealed; fire-retardant shield from cockpit; lines through cockpit metal-cased and 200 psi rated; pumps behind metal bulkhead; no supplementary tanks",
+          "rule": "CARS TR 12.3.11",
+          "options": ["Original", "Fuel cell", "Fuel lines"]
+        }
+      ]
+    },
+    {
+      "id": "interior",
+      "title": "Vehicle Interior",
+      "items": [
+        { "id": "door_panels", "label": "Door panels", "accepts": "Inside door panels protect from metal edges", "rule": "CARS TR 12.3.15" },
+        { "id": "secured_items", "label": "Secured items", "accepts": "All articles that could be dangerous if loose are securely restrained", "rule": "CARS TR 12.3.14" },
+        { "id": "spill_kit", "label": "Spill kit", "gear": "spill_kit", "accepts": "At least 2 x 15\" x 19\" absorbent pads and 1 x 3\" x 48\" hydrocarbon sock in a resealable heavy-duty bag", "rule": "CARS TR 12.3.25" },
+        { "id": "first_aid_kit", "label": "First Aid kit", "gear": "first_aid_kit", "accepts": "Comprehensive kit with the CARS-listed contents in the cockpit, easily accessible and removable", "rule": "CARS TR 12.3.5" },
+        { "id": "first_aid_sticker", "label": "Sticker", "accepts": "First-aid kit label on the outside of the car at the nearest access point", "rule": "CARS TR 12.3.5" },
+        { "id": "battery", "label": "Battery", "accepts": "Securely mounted, terminals covered; covered non-conductive box if relocated; sealed type if in the cockpit", "rule": "CARS TR 12.3.7" },
+        { "id": "triangles", "label": "Triangles (3)", "gear": "emergency_triangle", "accepts": "3 self-supporting reflective triangles, min. 30 cm per side, one within reach of a seated crew member", "rule": "CARS TR 12.3.6" },
+        { "id": "triangle_identification", "label": "Triangle identification", "accepts": "Triangles identified/marked for the car" },
+        {
+          "id": "extinguisher_1",
+          "label": "Extinguisher (<2 yrs)",
+          "gear": "fire_extinguisher",
+          "accepts": "Two portable extinguishers min. 5 B:C each in the cockpit, min. two quick-release metal fastenings and anti-torpedo tabs, one within reach of a seated crew member; bought, recharged or inspected within 2 years; exterior extinguisher label. On-board (central) system optional: FIA 8865-2015 or SFI 17.1, min. 3 kg, in addition to the two portables",
+          "rule": "CARS TR 12.3.4",
+          "options": ["Sticker", "Portable", "Central"],
+          "fields": [
+            { "id": "bc_rating", "label": "Portable rating (BC)", "type": "text" },
+            { "id": "central_quantity", "label": "Central quantity (kg or l)", "type": "number" },
+            { "id": "service_date", "label": "Purchase / service date", "type": "date" }
+          ]
+        },
+        {
+          "id": "extinguisher_2",
+          "label": "Extinguisher (<2 yrs)",
+          "gear": "fire_extinguisher",
+          "accepts": "Second required portable extinguisher, min. 5 B:C, same mounting and 2-year service requirements",
+          "rule": "CARS TR 12.3.4",
+          "options": ["Sticker", "Portable", "Central"],
+          "fields": [
+            { "id": "bc_rating", "label": "Portable rating (BC)", "type": "text" },
+            { "id": "central_quantity", "label": "Central quantity (kg or l)", "type": "number" },
+            { "id": "service_date", "label": "Purchase / service date", "type": "date" }
+          ]
+        },
+        {
+          "id": "extinguisher_3",
+          "label": "Extinguisher (<2 yrs)",
+          "accepts": "Additional extinguisher or on-board system if fitted; same mounting and 2-year service requirements",
+          "rule": "CARS TR 12.3.4",
+          "allowNA": true,
+          "options": ["Sticker", "Portable", "Central"],
+          "fields": [
+            { "id": "bc_rating", "label": "Portable rating (BC)", "type": "text" },
+            { "id": "central_quantity", "label": "Central quantity (kg or l)", "type": "number" },
+            { "id": "service_date", "label": "Purchase / service date", "type": "date" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bodywork",
+      "title": "Bodywork",
+      "items": [
+        { "id": "drivers_names", "label": "Drivers' names", "accepts": "Driver and co-driver names on the rear side windows, white 5 cm Helvetica bold", "rule": "CARS TR 12.4.2.3, 12.4.2.4" },
+        { "id": "flags", "label": "Flags", "accepts": "National or provincial flag, 5 cm high, next to each name", "rule": "CARS TR 12.4.2.3" },
+        {
+          "id": "windows",
+          "label": "Windows",
+          "accepts": "Laminated safety-glass windshield; side glass may be replaced with Lexan of equal or greater thickness allowing escape and rescue",
+          "rule": "CARS TR 12.3.9",
+          "options": ["Original", "Polycarbonate"]
+        },
+        {
+          "id": "window_tint",
+          "label": "Tint",
+          "accepts": "Crew visible from outside the car",
+          "allowNA": true,
+          "fields": [{ "id": "tint", "label": "Tint", "type": "number", "unit": "%" }]
+        },
+        { "id": "sunroof", "label": "Sunroof", "accepts": "Metal sunroof fixed closed; non-metal sunroof replaced with metal and fixed closed", "rule": "CARS TR 12.3.17", "allowNA": true },
+        { "id": "tires", "label": "Tires", "accepts": "Tires including spares adequate; studded tires only as permitted and marked at scrutineering", "rule": "CARS TR 12.3.1, 12.4.4" },
+        { "id": "suspension", "label": "Suspension", "accepts": "Suspension secure, no damage or excessive play" },
+        { "id": "mud_flaps_ground_clearance", "label": "Mud flaps & ground clearance", "accepts": "Mud flaps on all rear and driving wheels; min. 5.0 cm ground clearance (excluding tires)", "rule": "CARS TR 12.3.10, 12.3.19" },
+        { "id": "tow_point_front", "label": "Tow points: Front/identified", "gear": "tow_hook", "accepts": "Metal tow eye, min. 3/4\" inside diameter, painted yellow, red or orange, with \"TOW\" sticker", "rule": "CARS TR 12.3.13" },
+        { "id": "tow_point_rear", "label": "Tow points: Rear/identified", "gear": "tow_hook", "accepts": "Metal tow eye, min. 3/4\" inside diameter, painted yellow, red or orange, with \"TOW\" sticker", "rule": "CARS TR 12.3.13" },
+        { "id": "tow_rope", "label": "Tow rope", "gear": "tow_rope", "accepts": "Recovery strap carried entirely inside the car", "rule": "CARS TR 12.3.16" }
+      ]
+    }
+  ],
+  "signoff": [
+    { "id": "inspector", "label": "Inspector", "license": false }
+  ]
+}

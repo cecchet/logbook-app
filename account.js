@@ -5,7 +5,7 @@
 //  - owners: My garage (their cars, each with its public link);
 //  - scrutineers: issue a logbook from the open logbook, find a logbook,
 //    and work the events they're on the staff of (to inspect / inspected);
-//  - Frog Racing admins and technical directors: sanctioning bodies, their
+//  - System admins and technical directors: sanctioning bodies, their
 //    scrutineers and licenses, and their events.
 // A public link (?logbook=<token>) shows that logbook as its owner allows,
 // without signing in.
@@ -31,7 +31,11 @@
     accreditations: [],
     events: [],           // my_events()
     event: null,          // the event open: event_bundle()
-    mode: "home",         // the home screen, or a mode: create, library, event, admin (see MODES)
+    mode: "home",         // the home screen, or a mode: create, library, event, events, bodies (see MODES)
+    eventTab: "competitors", // the organizer's open event: "competitors" or "admin"
+    body: null,           // Sanctioning bodies: the body open (its id), and its tab
+    bodyTab: "scrutineers",
+    show: {},             // forms opened by their button: createEvent, addCompetitor, msrImport, addAcc, addBody, addAdmin
     open: { device: true, garage: true, find: false, events: true, admin: true },
     signIn: { email: "", sent: false, code: "", busy: false },
     message: null,        // { kind: "pass" | "fail", text }
@@ -74,6 +78,7 @@
   const fmtDate = (d) => (d ? new Date(d + (String(d).length === 10 ? "T12:00:00" : "")).toLocaleDateString() : "");
   const isoDay = (offsetDays, from) => new Date((from ? Date.parse(from + "T12:00:00") : Date.now()) + offsetDays * 864e5).toISOString().slice(0, 10);
   const carLine = (x) => [x.year, x.make, x.model].filter(Boolean).join(" ");
+  const bodyCode = (id) => (id || "").toUpperCase();
   const bodyName = (id) => (ui.bodies.find((b) => b.id === id) || {}).name || (id || "").toUpperCase();
 
   // ---- Server calls ----------------------------------------------------
@@ -95,6 +100,9 @@
         if (a.error) throw a.error;
         ui.accreditations = a.data;
         ui.events = await rpc("my_events");
+        // Tech sheet templates: the automatic ones (from the rulesets) and every body's own.
+        const tt = await sb.from("tech_sheet_templates").select("*").order("title");
+        ui.techTemplates = tt.error ? [] : tt.data;
         if (ui.event) await openEvent(ui.event.event.id, true);
       }
     } catch (e) { fail(e); }
@@ -672,9 +680,18 @@
   }
 
   // ---- Events ---------------------------------------------------------------
-  const eventForm = { body: "", name: "", location: "", scrutineeringStartsOn: isoDay(0), startsOn: isoDay(1), endsOn: isoDay(2), acceptedBodies: [] };
+  const eventForm = { id: "", body: "", name: "", location: "", scrutineeringStartsOn: isoDay(0), startsOn: isoDay(1), endsOn: isoDay(2), acceptedBodies: [] };
+  const blankEvent = () => ({ id: "", name: "", location: "", scrutineeringStartsOn: isoDay(0), startsOn: isoDay(1), endsOn: isoDay(2), acceptedBodies: [] });
+  // The open event, into the form to edit it.
+  function editEvent() {
+    const ev = ui.event.event;
+    Object.assign(eventForm, { id: ev.id, body: ev.body_id, name: ev.name || "", location: ev.location || "",
+      scrutineeringStartsOn: ev.scrutineering_starts_on, startsOn: ev.starts_on, endsOn: ev.ends_on,
+      acceptedBodies: (ev.accepted_bodies || []).filter((x) => x !== ev.body_id) });
+    toggle("editEvent", true);
+  }
   const staffForm = { email: "", role: "scrutineer" };
-  const entryForm = { carNumber: "", driver: "", codriver: "", class: "", logbook: "", make: "", model: "", year: "" };
+  const entryForm = { carNumber: "", driver: "", codriver: "", class: "", email: "", logbook: "", make: "", model: "", year: "" };
   let entryFilter = "";
   async function openEvent(id, quiet) {
     try { ui.event = await rpc("event_bundle", { p_event: id }); } catch (e) { fail(e); }
@@ -682,10 +699,16 @@
   }
   async function saveEvent() {
     if (!eventForm.name.trim()) return say("fail", "The event needs a name.");
+    if (!(eventForm.scrutineeringStartsOn <= eventForm.startsOn && eventForm.startsOn <= eventForm.endsOn)) {
+      return say("fail", "The dates are out of order: scrutineering starts on or before the event, which starts on or before it ends.");
+    }
+    const editing = !!eventForm.id;
     try {
-      const id = await rpc("save_event", { p: eventForm });
-      Object.assign(eventForm, { name: "", location: "" });
-      say("pass", "Event saved.");
+      const id = await rpc("save_event", { p: Object.assign({}, eventForm, { id: eventForm.id || undefined }) });
+      Object.assign(eventForm, blankEvent());
+      ui.show.createEvent = false; ui.show.editEvent = false;
+      if (!editing) ui.eventTab = "admin";
+      say("pass", editing ? "Event saved." : "Event created: add its staff and pick its tech sheet, then its competitors.");
       await loadAll(); await openEvent(id);
     } catch (e) { fail(e); }
   }
@@ -706,10 +729,10 @@
         logbookId = r[0].id;
       }
       await rpc("save_entry", { p_event: ui.event.event.id, p: {
-        carNumber: entryForm.carNumber.trim(), driver: entryForm.driver, codriver: entryForm.codriver, class: entryForm.class, logbookId,
+        carNumber: entryForm.carNumber.trim(), driver: entryForm.driver, codriver: entryForm.codriver, class: entryForm.class, email: entryForm.email, logbookId,
         vehicle: logbookId ? null : { make: entryForm.make, model: entryForm.model, year: entryForm.year },
       } });
-      Object.assign(entryForm, { carNumber: "", driver: "", codriver: "", class: "", logbook: "", make: "", model: "", year: "" });
+      Object.assign(entryForm, { carNumber: "", driver: "", codriver: "", class: "", email: "", logbook: "", make: "", model: "", year: "" });
       await openEvent(ui.event.event.id); loadEventsOnly();
     } catch (e) { fail(e); }
   }
@@ -723,6 +746,179 @@
       await openEvent(ui.event.event.id); loadEventsOnly();
     } catch (e) { fail(e); }
   }
+  // ---- Tech sheets (techsheet.js, tech-sheets/FORMAT.md) -----------------
+  // The car whose sheet is open: its event entry, and the sheet being
+  // filled -- the team's (submitted from PassTech, or imported from their
+  // file), or a new one from the event's template (paper -> digital).
+  const TECH_BUCKET = "tech-sheet-photos";
+  const techPhotoUrls = {};
+  function techPhotoUrl(sha) {
+    if (!techPhotoUrls[sha]) techPhotoUrls[sha] = sb.storage.from(TECH_BUCKET).download(sha).then(({ data, error }) => (error ? null : URL.createObjectURL(data)));
+    return techPhotoUrls[sha];
+  }
+  // A scrutineer's photo on a line: at most 2000 px, as a JPEG, into the
+  // tech sheet photo store under its SHA-256 (like the teams' photos).
+  async function addTechPhoto(file) {
+    const img = await new Promise((resolve, reject) => { const i = new Image(); i.onload = () => resolve(i); i.onerror = () => reject(new Error("not a photo the browser can read")); i.src = URL.createObjectURL(file); });
+    const scale = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement("canvas");
+    c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+    c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(img.src);
+    const blob = await new Promise((resolve) => c.toBlob(resolve, "image/jpeg", 0.85));
+    const sha = await sha256Hex(blob);
+    const { error } = await sb.storage.from(TECH_BUCKET).upload(sha, blob, { contentType: "image/jpeg", upsert: false });
+    if (error && !/exist|duplicate/i.test(error.message || "") && String(error.statusCode) !== "409") throw error;
+    techPhotoUrls[sha] = Promise.resolve(URL.createObjectURL(blob));
+    return sha;
+  }
+  // The event's sheets: [{ id, title, definition, classes }] (one per group of classes).
+  const eventSheets = (b) => (b.techTemplates && b.techTemplates.length ? b.techTemplates : b.techTemplate ? [Object.assign({ classes: [] }, b.techTemplate)] : []);
+  const sameClass = (a, c) => String(a || "").trim().toLowerCase() === String(c || "").trim().toLowerCase();
+  // The sheet for a car's class: the one listing it, else the one for "all other classes", else
+  // none (the scrutineer picks).
+  function sheetForClass(sheets, cls) {
+    if (sheets.length <= 1) return sheets[0] || null;
+    const listing = sheets.filter((t) => (t.classes || []).some((c) => sameClass(c, cls)));
+    if (listing.length === 1) return listing[0];
+    const rest = sheets.filter((t) => !(t.classes || []).length);
+    return !listing.length && rest.length === 1 ? rest[0] : null;
+  }
+  // templateId: open (or move the car to) that one of the event's sheets.
+  function openTechSheet(x, templateId) {
+    const b = ui.event;
+    const sheets = eventSheets(b);
+    const existing = (b.techSheets || []).find((s) => s.carNumber === x.entry.car_number);
+    ui.techSheetPick = null;
+    let tpl, tid;
+    if (existing && !templateId) { tpl = existing.template; tid = existing.templateId; }
+    else {
+      const chosen = templateId ? sheets.find((t) => t.id === templateId) : sheetForClass(sheets, x.entry.class);
+      if (!chosen && sheets.length > 1) { ui.techSheet = null; ui.techSheetPick = x; render(); return; }
+      tpl = chosen && chosen.definition; tid = chosen && chosen.id;
+    }
+    if (!tpl) return say("fail", "This event has no tech sheet yet -- its organizer picks one in Admin mode.");
+    const lb = x.logbook || {};
+    const v = x.entry.vehicle || {};
+    // The header, filled from what the event already knows about the car.
+    const known = { event: b.event.name, car_number: x.entry.car_number, class: x.entry.class, driver: x.entry.driver, codriver: x.entry.codriver,
+      make: lb.make || v.make, model: lb.model || v.model, year: lb.year || v.year, vin: lb.vin, logbook_body: lb.issuing_body ? bodyName(lb.issuing_body) : "",
+      logbook_number: lb.digital_number };
+    const header = Object.assign({}, existing && existing.header, ui.techSheet && ui.techSheet.entry.id === x.entry.id && templateId ? ui.techSheet.header : null);
+    (tpl.header || []).forEach((f) => { if (header[f.id] == null && f.prefill && known[f.prefill]) header[f.id] = known[f.prefill]; });
+    // Moving to another sheet keeps what's been filled in (lines with the same key keep their results).
+    const keep = ui.techSheet && ui.techSheet.entry.id === x.entry.id && templateId ? ui.techSheet : null;
+    ui.techSheet = {
+      x, templateId: tid, entry: x.entry, template: tpl, variant: existing && existing.variant ? existing.variant : TechSheet.variantForClass(tpl, x.entry.class), header,
+      competitor: existing ? existing.competitor : null,
+      inspection: keep ? keep.inspection : JSON.parse(JSON.stringify((existing && existing.inspection) || { items: {} })),
+      status: existing ? existing.status : "new", signAsChief: false,
+      view: {}, // what's folded (techsheet.js)
+    };
+    render();
+    setTimeout(() => { const el = document.getElementById("techsheet-panel"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 0);
+  }
+  async function saveTechSheet(finish) {
+    const t = ui.techSheet;
+    if (finish) {
+      const c = TechSheet.counts(t.template, t.variant, t.inspection);
+      if (finish === "pass" && c.fail) return say("fail", c.fail + " line" + (c.fail === 1 ? " is" : "s are") + " marked Fail -- fix " + (c.fail === 1 ? "it" : "them") + ", or finish as Failed.");
+      if (finish === "fail" && !c.fail && !(t.inspection.corrections || "").trim()) return say("fail", "Mark the lines that fail, or write the corrections required.");
+      if (finish === "pass" && c.todo && !confirm(c.todo + " line" + (c.todo === 1 ? " isn't" : "s aren't") + " checked yet. Pass car " + t.entry.car_number + " anyway?")) return;
+      if (!confirm((finish === "pass" ? "Pass" : "Fail") + " car " + t.entry.car_number + " and sign the sheet as " + (ui.roles.email) + "?")) return;
+    }
+    try {
+      const s = await rpc("save_tech_sheet", { p_event: ui.event.event.id, p: {
+        carNumber: t.entry.car_number, template: t.templateId || undefined, header: t.header, variant: t.variant, competitor: t.competitor || undefined,
+        inspection: { items: t.inspection.items, corrections: t.inspection.corrections || "" },
+        finish: finish || undefined, signAs: finish && t.signAsChief ? "chief" : undefined,
+      } });
+      say("pass", finish ? "Car " + t.entry.car_number + " " + (finish === "pass" ? "passed" : "failed") + (s.record ? " -- recorded in its logbook." : ".") : "Tech sheet saved.");
+      if (finish) ui.techSheet = null; else t.status = s.status;
+      await openEvent(ui.event.event.id); loadEventsOnly();
+    } catch (e) { fail(e); }
+  }
+  // A team's sheet exported from PassTech (a file): their declarations and
+  // photos come into the open sheet.
+  function importTeamSheet() {
+    const input = h("input", { type: "file", accept: "application/json,.json", onchange: async () => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        if (data.kind !== "passtech-tech-sheet" || !data.competitor) throw new Error("That isn't a PassTech tech sheet file.");
+        const t = ui.techSheet;
+        if (data.carNumber && String(data.carNumber) !== String(t.entry.car_number) &&
+            !confirm("That file is for car " + data.carNumber + ", not car " + t.entry.car_number + ". Import it anyway?")) return;
+        if (data.template && data.template.id && data.template.id !== t.template.id &&
+            !confirm("That file was filled on \"" + (data.template.title || data.template.id) + "\", not this event's \"" + t.template.title + "\". Lines that match are kept. Import it anyway?")) return;
+        // Its photos, into the tech sheet photo store.
+        const images = data.images || {};
+        let n = 0;
+        for (const sha of Object.keys(images)) {
+          ui.busy = "Uploading the team's photos: " + (++n) + " of " + Object.keys(images).length + "…"; render();
+          const blob = await dataUrlToBlob(images[sha]);
+          const real = await sha256Hex(blob);
+          const { error } = await sb.storage.from(TECH_BUCKET).upload(real, blob, { contentType: blob.type || "image/jpeg", upsert: false });
+          if (error && !/exist|duplicate/i.test(error.message || "") && String(error.statusCode) !== "409") throw error;
+          // A file edited by hand can name a photo by the wrong hash: point its lines at the real one.
+          if (real !== sha) Object.values(data.competitor.items || {}).forEach((it) =>
+            (it.photos || []).forEach((p) => { if (p.sha256 === sha) p.sha256 = real; }));
+        }
+        ui.busy = null;
+        t.competitor = Object.assign({}, data.competitor, { importedAt: new Date().toISOString(), file: file.name });
+        Object.entries(data.header || {}).forEach(([k, v]) => { if (v && !t.header[k]) t.header[k] = v; });
+        if (data.variant && !t.variant) t.variant = data.variant;
+        say("pass", "The team's sheet is in -- " + Object.keys(data.competitor.items || {}).length + " lines declared. Save to keep it.");
+      } catch (e) { ui.busy = null; fail(e); }
+    } });
+    input.click();
+  }
+  const sheetClasses = (t) => ((t.classes || []).length ? " -- " + t.classes.join(", ") : " -- all other classes");
+  function renderTechSheetPick() {
+    const x = ui.techSheetPick;
+    return h("div", { class: "account-card", id: "techsheet-panel" }, [
+      h("div", { class: "account-card-title" }, ["Car #" + x.entry.car_number + " -- which tech sheet?"]),
+      desc((x.entry.class ? "Class " + x.entry.class + " isn't listed by exactly one of this event's sheets" : "This car has no class") + ": pick the sheet to inspect it with."),
+      actions(eventSheets(ui.event).map((t) => btn(t.title + sheetClasses(t), () => openTechSheet(x, t.id), "small secondary")),
+        btn("Cancel", () => { ui.techSheetPick = null; render(); }, "small secondary")),
+    ]);
+  }
+  function renderTechSheet() {
+    const t = ui.techSheet;
+    const myRole = (ui.event.staff.find((s) => s.email === ui.roles.email) || {}).role;
+    // Filled in any time until scrutineering ends; Passed / Failed only during it.
+    const ev = ui.event.event;
+    const open = ui.events.some((e) => e.id === ev.id && e.open);
+    const over = isoDay(0) > isoDay(1, ev.ends_on);
+    const finished = t.status === "passed" || t.status === "failed";
+    const editable = !!myRole && !over && !finished;
+    const c = TechSheet.counts(t.template, t.variant, t.inspection);
+    const declaredBy = t.competitor && (t.competitor.by || t.competitor.file);
+    return h("div", { class: "account-card", id: "techsheet-panel" }, [
+      h("div", { class: "account-card-title" }, ["Car #" + t.entry.car_number + " -- " + t.template.title,
+        t.status === "passed" || t.status === "failed" ? h("span", { class: "badge " + (t.status === "passed" ? "pass" : "req") }, [t.status]) : null]),
+      desc([c.pass + " pass", c.fail + " fail", c.na ? c.na + " N/A" : null, c.todo + " to check",
+        declaredBy ? "team's sheet from " + declaredBy : "no team sheet (filled here from paper)"].filter(Boolean).join(" · ")),
+      !myRole ? desc("Only the event's staff fill its sheets.") : over ? desc("This event is over: the sheet is read-only.") : finished ? desc("This sheet is signed: it's read-only.")
+        : !open ? h("p", { class: c.todo === 0 && c.total ? "library-notice" : "element-desc" }, [(c.todo === 0 && c.total ? "Every line has a result. " : "") +
+          "Scrutineering opens " + fmtDate(ev.scrutineering_starts_on) + ": " + (c.todo === 0 && c.total ? "save the sheet now, and finish it as Passed or Failed from then." : "fill the sheet in and save it now -- Passed / Failed can be recorded from then.")]) : null,
+      eventSheets(ui.event).length > 1 ? h("div", { class: "field-row" }, [field("Tech sheet", editable
+        ? select(eventSheets(ui.event).map((x) => [x.id, x.title + sheetClasses(x)]), t.templateId || "", (v) => { if (v && v !== t.templateId) openTechSheet(t.x, v); })
+        : input({ value: t.template.title, disabled: true }, () => {}))]) : null,
+      TechSheet.sheet({ template: t.template, variant: t.variant, header: t.header, competitor: t.competitor, inspection: t.inspection,
+        editable, view: t.view, photoUrl: techPhotoUrl, addPhoto: addTechPhoto, setVariant: (v) => { t.variant = v; }, onChange: render }),
+      editable && open && myRole === "chief" ? h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: t.signAsChief, onchange: (e) => { t.signAsChief = e.target.checked; } }), " Also sign as chief scrutineer"]) : null,
+      actions(
+        editable ? btn("Save", () => saveTechSheet(null), "small secondary") : null,
+        editable && open ? btn("Finish: Passed", () => saveTechSheet("pass"), "small") : null,
+        editable && open ? btn("Finish: Failed", () => saveTechSheet("fail"), "small secondary") : null,
+        editable ? btn("Import the team's sheet (file)", importTeamSheet, "small secondary") : null,
+        btn("Close", () => { ui.techSheet = null; render(); }, "small secondary"),
+      ),
+    ]);
+  }
+
   function progress(e) {
     const done = e.passed + e.failed;
     return h("div", { class: "account-progress", title: e.passed + " passed, " + e.failed + " failed, " + e.pending + " to inspect" }, [
@@ -735,25 +931,39 @@
   }
   // Event cards: in Event mode the events a person works (staff), in Admin
   // mode the ones they organize.
+  // In date order: the next event first (one under way counts as next), then
+  // the past ones, latest first.
   function renderEventCards(list, emptyText) {
     if (!list.length) return [desc(emptyText)];
-    return list.map((e) => h("div", { class: "account-card" + (ui.event && ui.event.event.id === e.id ? " selected" : "") }, [
-      h("div", { class: "account-card-title" }, [e.name, " · ", bodyName(e.body), e.open ? " · open" : ""]),
+    const today = isoDay(0);
+    const upcoming = list.filter((e) => (e.endsOn || e.startsOn) >= today).sort((a, b) => (a.scrutineeringStartsOn || a.startsOn).localeCompare(b.scrutineeringStartsOn || b.startsOn));
+    const past = list.filter((e) => !upcoming.includes(e)).sort((a, b) => b.startsOn.localeCompare(a.startsOn));
+    const card = (e) => h("div", { class: "account-card account-event-card", role: "button", tabindex: "0", onclick: () => openFromList(e.id),
+      onkeydown: (k) => { if (k.key === "Enter") openFromList(e.id); } }, [
+      h("div", { class: "account-card-title" }, [e.name, " · ", bodyName(e.body), e.open ? h("span", { class: "badge pass" }, ["open"]) : null]),
       desc([e.location, "scrutineering " + fmtDate(e.scrutineeringStartsOn), "event " + fmtDate(e.startsOn) + (e.endsOn !== e.startsOn ? " to " + fmtDate(e.endsOn) : ""),
             e.myRole ? (e.myRole === "chief" ? "you: chief scrutineer" : "you: scrutineer") : "organizer"].filter(Boolean).join(" · ")),
       progress(e),
-      actions(btn(ui.event && ui.event.event.id === e.id ? "Close" : "Open", () => { if (ui.event && ui.event.event.id === e.id) { ui.event = null; render(); } else openEvent(e.id); }, "small secondary")),
-    ]));
+    ]);
+    return [
+      upcoming.length ? upcoming.map(card) : desc("No upcoming events."),
+      past.length ? h("h3", { class: "account-event-title" }, ["Past events"]) : null,
+      past.map(card),
+    ];
   }
+  function openFromList(id) { ui.eventTab = "competitors"; ui.show = {}; ui.techSheet = null; openEvent(id); }
+  // Create an event, or (eventForm.id) edit the open one -- its body stays.
   function renderCreateEvent() {
+    const editing = !!eventForm.id;
     const bodies = organizerBodies();
     if (!bodies.length) return null;
-    if (!bodies.some((b) => b.id === eventForm.body)) eventForm.body = bodies[0].id;
+    if (!editing && !bodies.some((b) => b.id === eventForm.body)) eventForm.body = bodies[0].id;
     const set = (k) => (v) => { eventForm[k] = v; };
     return h("div", { class: "account-card" }, [
-      h("div", { class: "account-card-title" }, ["Create an event"]),
+      h("div", { class: "account-card-title" }, [editing ? "Edit the event" : "Create an event"]),
       h("div", { class: "field-row" }, [
-        field("Sanctioning body", select(bodies.map((b) => [b.id, b.name]), eventForm.body, (v) => { eventForm.body = v; render(); })),
+        editing ? field("Sanctioning body", input({ value: bodyName(eventForm.body), disabled: true }, () => {}))
+          : field("Sanctioning body", select(bodies.map((b) => [b.id, b.name]), eventForm.body, (v) => { eventForm.body = v; render(); })),
         field("Name", input({ value: eventForm.name }, set("name"))),
         field("Location", input({ value: eventForm.location }, set("location"))),
       ]),
@@ -770,8 +980,14 @@
           } }), " " + b.name,
         ]))),
       ]),
-      actions(btn("Create event", saveEvent)),
+      actions(btn(editing ? "Save changes" : "Create event", saveEvent),
+        btn("Cancel", () => { Object.assign(eventForm, blankEvent()); ui.show.editEvent = false; toggle("createEvent", false); }, "secondary")),
     ]);
+  }
+  // A form opened by its button (ui.show), and closed by Cancel or the button again.
+  function toggle(key, on) {
+    ui.show[key] = on === undefined ? !ui.show[key] : on;
+    render();
   }
   function renderAddCompetitor() {
     const set = (k) => (v) => { entryForm[k] = v; };
@@ -782,6 +998,7 @@
         field("Driver", input({ value: entryForm.driver }, set("driver"))),
         field("Codriver", input({ value: entryForm.codriver }, set("codriver"))),
         field("Class", input({ value: entryForm.class }, set("class"))),
+        field("Email", input({ value: entryForm.email, inputmode: "email" }, set("email"))),
       ]),
       h("div", { class: "field-row" }, [
         field("Logbook (digital number)", input({ value: entryForm.logbook, placeholder: "leave empty if none" }, set("logbook"))),
@@ -789,8 +1006,152 @@
         field("Model", input({ value: entryForm.model }, set("model"))),
         field("Year", input({ value: entryForm.year }, set("year"))),
       ]),
-      actions(btn("Add competitor", addEntry, "small")),
+      actions(btn("Add competitor", addEntry, "small"), btn("Close", () => toggle("addCompetitor", false), "small secondary")),
     ]);
+  }
+  // ---- Bulk import from MotorsportReg ---------------------------------------
+  // MSR's entry list export (CSV): one row per competitor -- registration
+  // status, number, name, email, year / make / model / color, class. Read
+  // here, checked (numbers taken twice, cars already entered), then saved
+  // one entry at a time. ui.msr: { file, rows, skipNew }.
+  function parseCsv(text) {
+    const rows = [];
+    let row = [], cell = "", quoted = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (quoted) {
+        if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+        else if (c === '"') quoted = false;
+        else cell += c;
+      } else if (c === '"') quoted = true;
+      else if (c === ",") { row.push(cell); cell = ""; }
+      else if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++;
+        row.push(cell); cell = "";
+        if (row.some((x) => x.trim() !== "")) rows.push(row);
+        row = [];
+      } else cell += c;
+    }
+    row.push(cell);
+    if (row.some((x) => x.trim() !== "")) rows.push(row);
+    return rows;
+  }
+  // "DORU CARAENI" / "kevin dennis" -> "Doru Caraeni" / "Kevin Dennis"; mixed case is left alone.
+  function tidyName(s) {
+    const t = (s || "").replace(/\s+/g, " ").trim();
+    if (t !== t.toUpperCase() && t !== t.toLowerCase()) return t;
+    return t.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+  }
+  function msrRows(text) {
+    const table = parseCsv(text.replace(/^﻿/, ""));
+    if (table.length < 2) throw new Error("That file has no competitors in it.");
+    const head = table[0].map((x) => x.trim().toLowerCase());
+    const col = (...tests) => head.findIndex((x) => tests.some((t) => (t instanceof RegExp ? t.test(x) : x === t)));
+    const c = {
+      status: col(/^registration status$/, /status/), number: col("no.", "no", "number", "car number", /^car ?#$/, "#"),
+      name: col(/^full name/, "name", "driver"), first: col("first name"), last: col("last name"), email: col("e-mail", "email", /e-?mail/),
+      year: col("year"), make: col("make"), model: col("model"), color: col("color", "colour"),
+      cls: col(/^class \(long/, /^class/), codriver: col(/co-?driver/),
+    };
+    if (c.number < 0 || (c.name < 0 && c.first < 0)) throw new Error("That doesn't look like a MotorsportReg entry list: it needs the number (No.) and name columns.");
+    const get = (r, i) => (i >= 0 ? (r[i] || "").replace(/\s+/g, " ").trim() : "");
+    return table.slice(1).map((r) => {
+      const year = get(r, c.year);
+      return {
+        status: get(r, c.status), carNumber: get(r, c.number),
+        driver: tidyName(c.name >= 0 ? get(r, c.name) : get(r, c.first) + " " + get(r, c.last)),
+        codriver: tidyName(get(r, c.codriver)), email: get(r, c.email).toLowerCase(), class: get(r, c.cls),
+        vehicle: { year: /^[1-9]\d{3}$/.test(year) ? year : "", make: get(r, c.make), model: get(r, c.model), color: get(r, c.color) },
+        include: true,
+      };
+    }).filter((x) => x.carNumber || x.driver);
+  }
+  function chooseMsrFile() {
+    const fileInput = h("input", { type: "file", accept: ".csv,text/csv", onchange: async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      try { ui.msr = { file: file.name, rows: msrRows(await file.text()), skipNew: false }; render(); }
+      catch (e) { fail(e); }
+    } });
+    fileInput.click();
+  }
+  // Each row's problem, if any: no number, or a number another row also has.
+  function msrCheck(m) {
+    const used = {};
+    m.rows.forEach((x) => { if (msrIncluded(m, x)) used[x.carNumber] = (used[x.carNumber] || 0) + 1; });
+    return (x) => (!msrIncluded(m, x) ? null : !x.carNumber ? "no number" : used[x.carNumber] > 1 ? "number taken twice -- change one" : null);
+  }
+  const msrIncluded = (m, x) => x.include && !(m.skipNew && /^new$/i.test(x.status));
+  async function importMsr() {
+    const m = ui.msr, b = ui.event, problem = msrCheck(m);
+    const rows = m.rows.filter((x) => msrIncluded(m, x));
+    if (rows.some(problem)) return say("fail", "Fix the rows marked in red first (or untick them).");
+    let n = 0, updated = 0;
+    try {
+      for (const x of rows) {
+        ui.busy = "Importing competitors: " + (++n) + " of " + rows.length + "…"; render();
+        // A car already entered keeps its logbook, co-driver (MSR has none) and tech status.
+        const was = b.entries.find((e) => e.entry.car_number === x.carNumber);
+        if (was) updated++;
+        await rpc("save_entry", { p_event: b.event.id, p: {
+          carNumber: x.carNumber, driver: x.driver, class: x.class, email: x.email,
+          codriver: x.codriver || (was && was.entry.codriver) || null,
+          logbookId: (was && was.entry.logbook_id) || null,
+          vehicle: was && was.entry.logbook_id ? was.entry.vehicle : x.vehicle,
+        } });
+      }
+      ui.busy = null; ui.msr = null; ui.show.msrImport = false;
+      await openEvent(b.event.id); loadEventsOnly();
+      say("pass", "Imported " + rows.length + " competitors from MotorsportReg" + (updated ? " (" + updated + " already entered, updated)" : "") + ".");
+    } catch (e) { ui.busy = null; await openEvent(b.event.id); fail(e); }
+  }
+  function renderMsrImport() {
+    const m = ui.msr;
+    const close = () => { ui.msr = null; toggle("msrImport", false); };
+    if (!m) {
+      return h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, ["Bulk import from MotorsportReg"]),
+        desc("In MotorsportReg, export the event's entry list as CSV (with the number, name, email, year, make, model, color and class columns), then choose the file here. You'll see the list before anything is saved."),
+        actions(btn("Choose the CSV file", chooseMsrFile, "small"), btn("Close", close, "small secondary")),
+      ]);
+    }
+    const problem = msrCheck(m);
+    const existing = (x) => ui.event.entries.find((e) => e.entry.car_number === x.carNumber);
+    const sameDriver = (a, b) => String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+    const shown = m.rows.filter((x) => msrIncluded(m, x));
+    const newOnes = m.rows.filter((x) => /^new$/i.test(x.status)).length;
+    const bad = shown.filter(problem).length;
+    return h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title" }, ["Bulk import from MotorsportReg -- " + m.file]),
+      desc([shown.length + " to import", shown.filter(existing).length ? shown.filter(existing).length + " already entered (updated, keeping their logbook)" : null,
+        bad ? bad + " to fix" : null].filter(Boolean).join(" · ")),
+      newOnes ? h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: m.skipNew, onchange: (e) => { m.skipNew = e.target.checked; render(); } }),
+        " Skip the " + newOnes + " registration" + (newOnes === 1 ? "" : "s") + " still \"New\" in MotorsportReg (not confirmed)"]) : null,
+      h("table", { class: "account-table msr-table" }, [
+        h("tr", {}, ["", "No.", "Driver", "Class", "Car", "Email", ""].map((t) => h("th", {}, [t]))),
+        m.rows.map((x, i) => {
+          const skipped = !msrIncluded(m, x);
+          const p = problem(x);
+          return h("tr", { class: skipped ? "msr-skipped" : p ? "msr-problem" : "" }, [
+            h("td", {}, [h("input", { type: "checkbox", checked: x.include, title: "Import this row", onchange: (e) => { x.include = e.target.checked; render(); } })]),
+            h("td", {}, [h("input", { type: "text", class: "msr-number", value: x.carNumber, "data-id": "msr-" + i, oninput: (e) => { x.carNumber = e.target.value.trim(); render(); restoreFocus("msr-" + i); } })]),
+            h("td", {}, [x.driver]),
+            h("td", {}, [x.class]),
+            h("td", {}, [[x.vehicle.year, x.vehicle.make, x.vehicle.model].filter(Boolean).join(" ") + (x.vehicle.color ? " (" + x.vehicle.color + ")" : "")]),
+            h("td", {}, [x.email]),
+            h("td", {}, [p ? h("span", { class: "badge req" }, [p]) : /^new$/i.test(x.status) ? h("span", { class: "badge info", title: "Registration not confirmed yet in MotorsportReg" }, ["new"]) : null,
+              !p && existing(x) ? (sameDriver(existing(x).entry.driver, x.driver) || !existing(x).entry.driver
+                ? h("span", { class: "badge info", title: "Already entered: updated, keeping its logbook and tech status" }, ["update"])
+                : h("span", { class: "badge cond", title: "Car " + x.carNumber + " is entered for " + existing(x).entry.driver + " -- importing replaces them" }, ["replaces " + existing(x).entry.driver])) : null]),
+          ]);
+        }),
+      ]),
+      actions(btn("Import " + shown.length + " competitors", importMsr, "small"), btn("Choose another file", chooseMsrFile, "small secondary"), btn("Cancel", close, "small secondary")),
+    ]);
+  }
+  function tabs(list, current, onPick) {
+    return h("div", { class: "account-tabs", role: "tablist" }, list.map(([id, label]) =>
+      h("button", { type: "button", role: "tab", "aria-selected": String(id === current), class: "account-tab" + (id === current ? " on" : ""), onclick: () => onPick(id) }, [label])));
   }
   // The open event. kind "scrutineer" (Event mode): download its logbooks,
   // the cars to inspect and the ones inspected. kind "organize" (Admin
@@ -807,23 +1168,61 @@
       .some((s) => s && String(s).toLowerCase().includes(q));
     const entries = b.entries.filter((x) => x.entry.tech_status !== "withdrawn" && matches(x));
     const carDesc = (x) => (x.logbook ? carLine(x.logbook) + " · " + x.logbook.digital_number : carLine(x.entry.vehicle || {}) + " · no logbook");
+    // With a tech sheet (the event has one): open the car's sheet; without,
+    // the plain Passed / Failed of before.
+    const hasSheet = eventSheets(b).length > 0 || (b.techSheets || []).length > 0;
+    const teamSheet = (x) => (b.techSheets || []).find((s) => s.carNumber === x.entry.car_number && s.competitor);
+    // A car's sheet and how far it is: { sheet, c: counts } or null.
+    const sheetProgress = (x) => {
+      const s = (b.techSheets || []).find((y) => y.carNumber === x.entry.car_number);
+      return s && s.template ? { sheet: s, c: TechSheet.counts(s.template, s.variant, s.inspection || { items: {} }) } : null;
+    };
+    const allChecked = (x) => { const p = sheetProgress(x); return !!p && p.c.total > 0 && p.c.todo === 0; };
     const entryRow = (x, withButtons) => h("div", { class: "account-entry" }, [
       h("span", { class: "account-car-number" }, ["#" + x.entry.car_number]),
       h("span", { class: "account-entry-main" }, [
         h("strong", {}, [[x.entry.driver, x.entry.codriver].filter(Boolean).join(" / ") || "—"]),
-        h("span", { class: "element-desc" }, [" " + carDesc(x) + (x.entry.class ? " · " + x.entry.class : "")]),
+        h("span", { class: "element-desc" }, [" " + carDesc(x) + (x.entry.class ? " · " + x.entry.class : "") + (kind === "organize" && x.entry.email ? " · " + x.entry.email : "")]),
+        teamSheet(x) ? h("span", { class: "badge info", title: "The team pre-filled its tech sheet" }, ["team sheet"]) : null,
+        // Its sheet's progress, until it's signed off.
+        x.entry.tech_status === "pending" && sheetProgress(x) ? (() => { const c = sheetProgress(x).c; return h("span", { class: "badge " + (c.fail ? "req" : c.todo ? "info" : "pass") },
+          [c.todo ? c.total - c.todo + "/" + c.total + " checked" : "all checked" + (c.fail ? " · " + c.fail + " fail" : "")]); })() : null,
       ]),
+      withButtons && hasSheet ? btn("Tech sheet", () => openTechSheet(x), "small secondary") : null,
       x.entry.tech_status === "pending"
-        ? (withButtons && x.logbook && myRole && open ? h("span", {}, [btn("Passed", () => inspect(x.entry, true), "small"), " ", btn("Failed", () => inspect(x.entry, false), "small secondary")])
-          : h("span", { class: "badge info" }, ["to inspect"]))
+        ? (withButtons && !hasSheet && x.logbook && myRole && open ? h("span", {}, [btn("Passed", () => inspect(x.entry, true), "small"), " ", btn("Failed", () => inspect(x.entry, false), "small secondary")])
+          : h("span", { class: "badge info" }, [allChecked(x) ? "to sign off" : "to inspect"]))
         : h("span", { class: "badge " + (x.entry.tech_status === "passed" ? "pass" : "req") }, [x.entry.tech_status]),
     ]);
     const filterBox = h("div", { class: "field-row" }, [field("Find a car", input({ value: entryFilter, "data-id": "entry-filter", placeholder: "car number, driver, car…" }, (v) => { entryFilter = v; render(); restoreFocus("entry-filter"); }))]);
     const out = [
+      actions(btn("← All events", () => { ui.event = null; ui.techSheet = null; render(); }, "small secondary")),
       h("h3", { class: "account-event-title" }, [ev.name + " -- " + bodyName(ev.body_id)]),
-      desc(["Accepts logbooks from " + ev.accepted_bodies.map(bodyName).join(", "), open ? "open for records" : "not open for records (scrutineering " + fmtDate(ev.scrutineering_starts_on) + " to the day after " + fmtDate(ev.ends_on) + ")"].join(" · ")),
+      desc([fmtDate(ev.starts_on) + (ev.ends_on !== ev.starts_on ? " to " + fmtDate(ev.ends_on) : ""), ev.location,
+        "accepts logbooks from " + ev.accepted_bodies.map(bodyName).join(", "),
+        open ? "open for records" : "not open for records (scrutineering " + fmtDate(ev.scrutineering_starts_on) + " to the day after " + fmtDate(ev.ends_on) + ")"].filter(Boolean).join(" · ")),
     ];
+    // Adding competitors: one at a time, or (soon) the MotorsportReg list.
+    const canAdd = organizer || myRole === "chief";
+    const addButtons = canAdd ? actions(
+      btn("Add competitor", () => toggle("addCompetitor"), ui.show.addCompetitor ? "small" : "small secondary"),
+      kind === "organize" ? btn("Bulk import from MSR", () => toggle("msrImport"), ui.show.msrImport ? "small" : "small secondary") : null,
+    ) : null;
+    const addForms = canAdd ? [ui.show.addCompetitor ? renderAddCompetitor() : null, kind === "organize" && ui.show.msrImport ? renderMsrImport() : null] : [];
     if (kind === "organize") {
+      out.push(tabs([["competitors", "Competitor management"], ["admin", "Admin"]], ui.eventTab, (t) => { ui.eventTab = t; render(); }));
+      if (ui.eventTab === "competitors") {
+        out.push(addButtons, addForms, filterBox);
+        out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Competitors (" + entries.length + ")"]), entries.length ? entries.map((x) => entryRow(x, false)) : desc("None yet.")]));
+        return out;
+      }
+      if (ui.show.editEvent && eventForm.id === ev.id) out.push(renderCreateEvent());
+      else if (organizer) out.push(h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, ["The event"]),
+        desc([ev.name, ev.location, "scrutineering " + fmtDate(ev.scrutineering_starts_on), "event " + fmtDate(ev.starts_on) + (ev.ends_on !== ev.starts_on ? " to " + fmtDate(ev.ends_on) : ""),
+          "accepts logbooks from " + ev.accepted_bodies.map(bodyName).join(", ")].filter(Boolean).join(" · ")),
+        actions(btn("Edit event", editEvent, "small secondary")),
+      ]));
       out.push(h("div", { class: "account-card" }, [
         h("div", { class: "account-card-title" }, ["Staff"]),
         b.staff.length ? h("ul", { class: "account-records" }, b.staff.map((s) => h("li", {}, [
@@ -835,38 +1234,80 @@
         ]) : null,
         organizer ? actions(btn("Add to staff", addStaff, "small")) : null,
       ]));
-      out.push(filterBox);
-      out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Competitors (" + entries.length + ")"]), entries.length ? entries.map((x) => entryRow(x, false)) : desc("None yet.")]));
-      if (organizer || myRole === "chief") out.push(renderAddCompetitor());
+      // The sheets the event uses -- one per group of classes (X / non-X, formula / GT...): the
+      // body's own (or its automatic one, from the ruleset) by default.
+      const choices = (ui.techTemplates || []).filter((t) => t.body_id === ev.body_id || (!t.body_id && t.definition && t.definition.bodyId === ev.body_id));
+      const sheets = eventSheets(b);
+      const ed = ui.sheetsEdit && ui.sheetsEdit.event === ev.id ? ui.sheetsEdit : null;
+      out.push(h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, ["Tech sheets"]),
+        ed ? [
+          desc("A car gets the sheet listing its class (event class codes, comma-separated); a sheet with no classes is for all the others. Teams pick theirs in PassTech."),
+          ed.rows.map((r, i) => h("div", { class: "field-row event-sheet-row" }, [
+            field("Sheet", select(choices.map((t) => [t.id, t.title + (t.body_id ? "" : " (automatic, from ruleset)")]).concat(sheets.filter((t) => !choices.some((c) => c.id === t.id)).map((t) => [t.id, t.title])), r.template, (v) => { r.template = v; })),
+            field("Classes", input({ value: r.classes, placeholder: "e.g. X, XS -- empty: all other classes" }, (v) => { r.classes = v; })),
+            ed.rows.length > 1 ? btn("Remove", () => { ed.rows.splice(i, 1); render(); }, "small secondary") : null,
+          ])),
+          actions(
+            choices.length > ed.rows.length ? btn("Add a tech sheet", () => { ed.rows.push({ template: (choices.find((c) => !ed.rows.some((r) => r.template === c.id)) || choices[0]).id, classes: "" }); render(); }, "small secondary") : null,
+            btn("Save", () => saveEventSheets(ev.id, ed.rows), "small"),
+            btn("Use the body's default", () => saveEventSheets(ev.id, []), "small secondary"),
+            btn("Cancel", () => { ui.sheetsEdit = null; render(); }, "small secondary"),
+          ),
+        ] : [
+          sheets.length ? h("ul", { class: "account-records" }, sheets.map((t) => h("li", {}, [h("strong", {}, [t.title]), (t.body ? "" : " (automatic, from ruleset)") + sheetClasses(t)])))
+            : desc("No tech sheet for this body yet -- add one under its scrutineers in Admin mode."),
+          sheets.length ? desc("Scrutineers fill " + (sheets.length > 1 ? "the sheet for each car's class" : "it for each car") + "; teams can pre-fill theirs in PassTech.") : null,
+          organizer && choices.length ? actions(btn("Change tech sheets", () => {
+            ui.sheetsEdit = { event: ev.id, rows: sheets.length ? sheets.map((t) => ({ template: t.id, classes: (t.classes || []).join(", ") })) : [{ template: choices[0].id, classes: "" }] };
+            render();
+          }, "small secondary")) : null,
+        ],
+      ]));
       return out;
     }
-    const toInspect = entries.filter((x) => x.entry.tech_status === "pending");
-    const inspected = entries.filter((x) => x.entry.tech_status !== "pending");
+    // To inspect; every line checked but not signed off yet (Passed / Failed waits for the
+    // scrutineering window); passed; failed.
+    const pending = entries.filter((x) => x.entry.tech_status === "pending");
+    const toInspect = pending.filter((x) => !allChecked(x));
+    const toSign = pending.filter(allChecked);
+    const passed = entries.filter((x) => x.entry.tech_status === "passed");
+    const failed = entries.filter((x) => x.entry.tech_status === "failed");
     const withLogbook = b.entries.filter((x) => x.logbook);
     if (withLogbook.length) {
       out.push(actions(btn("Download this event's logbooks to this device (" + withLogbook.length + ")",
         () => downloadMany(withLogbook.map((x) => x.logbook.id), "Downloading"), "small secondary")));
     }
-    out.push(filterBox);
-    out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["To inspect (" + toInspect.length + ")"]), toInspect.length ? toInspect.map((x) => entryRow(x, true)) : desc("None.")]));
-    out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Inspected (" + inspected.length + ")"]), inspected.length ? inspected.map((x) => entryRow(x, true)) : desc("None yet.")]));
+    if (ui.techSheetPick && ui.techSheetPick.entry.event_id === ev.id) out.push(renderTechSheetPick());
+    if (ui.techSheet && ui.techSheet.entry.event_id === ev.id) out.push(renderTechSheet());
+    // Teams' sheets for cars not on the competitor list yet.
+    const orphans = (b.techSheets || []).filter((s) => !b.entries.some((x) => x.entry.car_number === s.carNumber));
+    if (orphans.length) out.push(desc("Tech sheets from teams not on the competitor list yet: " + orphans.map((s) => "#" + s.carNumber + (s.header && s.header.driver ? " " + s.header.driver : "")).join(", ") +
+      (myRole === "chief" ? " -- add them (Add competitor) to inspect them." : " -- the chief scrutineer adds them.")));
     // The chief scrutineer can add a late entry from here too.
-    if (myRole === "chief") out.push(renderAddCompetitor());
+    out.push(addButtons, addForms, filterBox);
+    out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["To inspect (" + toInspect.length + ")"]), toInspect.length ? toInspect.map((x) => entryRow(x, true)) : desc("None.")]));
+    if (toSign.length) out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Checked -- waiting for sign-off (" + toSign.length + ")"]),
+      desc(open ? "Every line has a result: open the sheet and finish it as Passed or Failed." : "Every line has a result. Passed / Failed can be recorded once scrutineering opens (" + fmtDate(ev.scrutineering_starts_on) + ")."),
+      toSign.map((x) => entryRow(x, true))]));
+    out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Passed (" + passed.length + ")"]), passed.length ? passed.map((x) => entryRow(x, true)) : desc("None yet.")]));
+    if (failed.length) out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Failed (" + failed.length + ")"]), failed.map((x) => entryRow(x, true))]));
     return out;
   }
 
-  // ---- Administration (Frog Racing admins, technical directors) -----------
+  // ---- Administration (System admins, technical directors) -----------
   const bodyForm = { id: "", name: "", note: "" };
   const accForm = { email: "", name: "", body: "", role: "scrutineer", license: "", code: "", expires: "" };
   let adminEmail = "";
   async function saveBody() {
-    try { await rpc("save_body", { p_id: bodyForm.id.trim().toLowerCase(), p_name: bodyForm.name.trim(), p_number_note: bodyForm.note.trim() || null }); Object.assign(bodyForm, { id: "", name: "", note: "" }); say("pass", "Sanctioning body saved."); loadAll(); }
+    try { await rpc("save_body", { p_id: bodyForm.id.trim().toLowerCase(), p_name: bodyForm.name.trim(), p_number_note: bodyForm.note.trim() || null }); Object.assign(bodyForm, { id: "", name: "", note: "" }); ui.show.addBody = false; ui.show.editBody = false; say("pass", "Sanctioning body saved."); loadAll(); }
     catch (e) { fail(e); }
   }
   async function grant() {
     try {
       await rpc("grant_accreditation", { p_email: accForm.email, p_name: accForm.name, p_body: accForm.body, p_role: accForm.role, p_license: accForm.license || null, p_code: accForm.code || null, p_expires: accForm.expires || null });
       Object.assign(accForm, { email: "", name: "", license: "", code: "", expires: "" });
+      ui.show.addAcc = false;
       say("pass", "Accreditation saved."); loadAll();
     } catch (e) { fail(e); }
   }
@@ -895,74 +1336,225 @@
     if (state !== "active" && !confirm(({ disabled: "Disable", deleted: "Delete" })[state] + " " + b.name + "? Its scrutineers can't sign anything new while it is.")) return;
     try { await rpc("set_body_state", { p_id: b.id, p_state: state }); loadAll(); } catch (e) { fail(e); }
   }
-  async function addAdmin() {
-    try { await rpc("add_admin", { p_email: adminEmail }); adminEmail = ""; say("pass", "Admin added."); } catch (e) { fail(e); }
+  // ---- Tech sheet templates (a body's own; the automatic ones from the rulesets) ----
+  // ui.templateEdit: { body, id (null: a new copy), key, def (edited in place) }
+  const bodyTemplates = (body) => (ui.techTemplates || []).filter((t) => t.body_id === body);
+  const libraryFor = (body) => (ui.techTemplates || []).filter((t) => !t.body_id && t.definition && t.definition.bodyId === body);
+  const library = () => (ui.techTemplates || []).filter((t) => !t.body_id);
+  // A new, empty sheet: the usual header fields and sign-off, no lines yet.
+  function blankTemplate(body) {
+    const taken = bodyTemplates(body).map((t) => t.key);
+    let key = body + "-tech-sheet", n = 2;
+    while (taken.includes(key)) key = body + "-tech-sheet-" + n++;
+    const f = (id, label, prefill, required) => Object.assign({ id, label, type: "text" }, prefill ? { prefill } : {}, required ? { required: true } : {});
+    return { key, blank: true, title: "New tech sheet", definition: {
+      format: 1, id: key, bodyId: body, title: bodyName(body) + " Tech Sheet", revision: isoDay(0),
+      header: [f("event", "Event", "event"), f("car_number", "Car number", "car_number", true), f("class", "Class", "class"), f("driver", "Driver", "driver", true),
+        f("codriver", "Co-driver", "codriver"), f("make", "Make", "make"), f("model", "Model", "model"), f("year", "Year", "year"), f("vin", "VIN", "vin"),
+        f("logbook_number", "Logbook number", "logbook_number")],
+      sections: [],
+      signoff: [{ id: "scrutineer", label: "Scrutineer", license: true }, { id: "chief", label: "Chief Scrutineer", license: false }],
+    } };
   }
-  function renderAdmin() {
-    const admin = ui.roles.admin;
+  function uniqueKey(body, base) {
+    const taken = bodyTemplates(body).map((t) => t.key);
+    let key = base, n = 2;
+    while (taken.includes(key)) key = base + "-" + n++;
+    return key;
+  }
+  function copyTemplate(body, t) {
+    editTemplate(body, Object.assign({}, t, { key: t.key + "-copy", definition: Object.assign({}, t.definition, { title: t.title + " (copy)" }) }), true);
+    ui.templateEdit.copyOf = t.title;
+    render();
+  }
+  function editTemplate(body, t, asCopy) {
+    const key = asCopy ? uniqueKey(body, t.key) : t.key;
+    ui.templateEdit = { body, id: asCopy ? null : t.id, key, blank: !!t.blank, public: !asCopy && !!t.public, def: JSON.parse(JSON.stringify(t.definition)) };
+    if (asCopy) Object.assign(ui.templateEdit.def, { bodyId: body, id: key });
+    render();
+  }
+  async function saveTemplate() {
+    const e = ui.templateEdit;
+    if (!(e.def.title || "").trim()) return say("fail", "The sheet needs a title.");
+    try {
+      await rpc("save_tech_sheet_template", { p: { id: e.id || undefined, body: e.body, key: e.key, title: e.def.title.trim(), public: !!e.public, definition: e.def } });
+      ui.templateEdit = null;
+      say("pass", "Tech sheet saved for " + bodyName(e.body) + ".");
+      loadAll();
+    } catch (err) { fail(err); }
+  }
+  function renderBodyTechSheets(b) {
+    const own = bodyTemplates(b.id);
+    const lib = libraryFor(b.id).filter((t) => !own.some((o) => o.key === t.key));
+    const editing = ui.templateEdit && ui.templateEdit.body === b.id ? ui.templateEdit : null;
+    const others = library().filter((t) => !own.some((o) => o.key === t.key) && !lib.includes(t));
+    return h("div", { class: "account-section-body" }, [
+      h("div", { class: "account-card-title" }, ["Tech sheets"]),
+      own.length ? own.map((t) => h("div", { class: "account-entry" }, [
+        h("span", { class: "account-entry-main" }, [h("strong", {}, [t.title]), h("span", { class: "element-desc" }, [" version " + t.version + " · " + TechSheet.counts(t.definition, null, null).total + " lines · updated " + fmtDate(String(t.updated_at).slice(0, 10))])]),
+        h("span", { class: "badge " + (t.public ? "pass" : "info"), title: t.public ? "Listed in PassTech as " + bodyCode(b.id) + "'s generic tech sheet" : "Only used by the events it's attached to" }, [t.public ? "Public" : "Private"]),
+        btn("Edit", () => editTemplate(b.id, t, false), "small secondary"),
+        btn("Copy", () => copyTemplate(b.id, t), "small secondary"),
+      ])) : desc("No tech sheet of its own yet." + (lib.length ? " Its events use the automatic tech sheet from the ruleset, " + lib[0].title + ", until it has one." : "")),
+      // One way to start a sheet: blank, a copy of one of its own, from its automatic one, or from another body's.
+      !editing ? h("div", { class: "account-actions" }, [
+        h("select", { class: "techsheet-start", "aria-label": "Start a new tech sheet", onchange: (e) => {
+          const v = e.target.value;
+          if (v === "blank") return editTemplate(b.id, blankTemplate(b.id), true);
+          const ownSheet = own.find((x) => x.id === v);
+          if (ownSheet) return copyTemplate(b.id, ownSheet);
+          const mine = lib.find((x) => x.id === v);
+          if (mine) return editTemplate(b.id, mine, true);
+          const t = others.find((x) => x.id === v);
+          if (t) editTemplate(b.id, Object.assign({}, t, { key: b.id + "-" + t.key }), true);
+        } }, [
+          h("option", { value: "" }, ["Start a new tech sheet…"]),
+          h("option", { value: "blank" }, ["Blank sheet"]),
+          own.length ? h("optgroup", { label: "Copy one of " + bodyCode(b.id) + "'s sheets" }, own.map((t) => h("option", { value: t.id }, [t.title]))) : null,
+          lib.length ? h("optgroup", { label: "Automatic tech sheet from " + bodyCode(b.id) + "'s ruleset" }, lib.map((t) => h("option", { value: t.id, title: (t.definition.source || {}).form || "" }, [t.title]))) : null,
+          others.length ? h("optgroup", { label: "Another body's automatic tech sheet" }, others.map((t) => h("option", { value: t.id }, [t.title]))) : null,
+        ]),
+      ]) : null,
+      editing ? h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, [editing.id ? "Editing: " + editing.def.title : editing.blank ? "New blank sheet for " + bodyName(b.id) : editing.copyOf ? "New sheet for " + bodyName(b.id) + ", a copy of " + editing.copyOf : "New sheet for " + bodyName(b.id) + ", from " + editing.def.title]),
+        // Private: only for the events it's attached to. Public: also PassTech's generic sheet for the body.
+        TechSheet.isPreview(editing.def) ? null : h("div", { class: "techsheet-visibility" }, [
+          h("span", {}, ["Visibility: "]),
+          [[false, "Private", "only used by the events it's attached to"], [true, "Public", "also listed in PassTech as " + bodyCode(b.id) + "'s generic tech sheet, for competitors to pre-fill without an event"]].map(([v, label, text]) =>
+            h("label", {}, [h("input", { type: "radio", name: "techsheet-visibility", checked: !!editing.public === v, onchange: () => { editing.public = v; render(); } }), " ", h("strong", {}, [label]), " -- " + text])),
+        ]),
+        // To compare with: the body's automatic sheet(s), then its own others.
+        TechSheet.editor(editing.def, (rerender) => { if (rerender) render(); }, { references: libraryFor(b.id).map((t) => ({ id: t.id, title: t.title, builtIn: true, definition: t.definition }))
+          .concat(own.filter((t) => t.id !== editing.id).map((t) => ({ id: t.id, title: t.title, definition: t.definition }))) }),
+        // Not while previewing (Back to editing is there): Cancel would throw the sheet away.
+        TechSheet.isPreview(editing.def) ? null : actions(btn("Save tech sheet", saveTemplate, "small"),
+          btn("Cancel", () => { if (confirm("Discard this tech sheet's changes?")) { ui.templateEdit = null; render(); } }, "small secondary")),
+      ]) : null,
+    ]);
+  }
+  async function saveEventSheets(evId, rows) {
+    const sheets = rows.map((r) => ({ template: r.template, classes: String(r.classes || "").split(",").map((c) => c.trim()).filter(Boolean) }));
+    if (new Set(sheets.map((x) => x.template)).size !== sheets.length) return say("fail", "Each sheet once: put all its classes on one line.");
+    try {
+      await rpc("set_event_tech_sheets", { p_event: evId, p_sheets: sheets });
+      ui.sheetsEdit = null;
+      await openEvent(evId);
+      say("pass", sheets.length ? "The event's tech sheets are set." : "The event uses its body's default sheet.");
+    } catch (e) { fail(e); }
+  }
+
+  async function addAdmin() {
+    try { await rpc("add_admin", { p_email: adminEmail }); adminEmail = ""; ui.show.addAdmin = false; say("pass", "Admin added."); } catch (e) { fail(e); }
+  }
+  // Sanctioning bodies: the list (the ones this person manages), then one
+  // body at a time -- its scrutineers, and its tech sheets.
+  function accStatus(x) {
+    return x.deleted_at ? "deleted" : x.disabled_at ? "disabled" : x.license_expires && x.license_expires < isoDay(0) ? "license expired" : "active";
+  }
+  function manageableBodies() {
     const tdBodies = ui.roles.accreditations.filter((a) => a.role === "technical_director").map((a) => a.body);
-    const manageable = admin ? ui.bodies : ui.bodies.filter((b) => tdBodies.includes(b.id));
-    if (!manageable.some((b) => b.id === accForm.body) && manageable.length) accForm.body = manageable[0].id;
-    const today = isoDay(0);
-    const status = (x) => (x.deleted_at ? "deleted" : x.disabled_at ? "disabled" : x.license_expires && x.license_expires < today ? "license expired" : "active");
+    return ui.roles.admin ? ui.bodies : ui.bodies.filter((b) => tdBodies.includes(b.id));
+  }
+  function renderBodies() {
+    const admin = ui.roles.admin;
+    const manageable = manageableBodies();
+    const open = ui.body && manageable.find((b) => b.id === ui.body);
+    if (open) return renderBody(open);
     const out = [];
+    if (admin) {
+      out.push(actions(
+        btn("Add a sanctioning body", () => { if (!ui.show.addBody) Object.assign(bodyForm, { id: "", name: "", note: "" }); toggle("addBody"); }, ui.show.addBody ? "small" : "small secondary"),
+        btn("Add a System admin", () => toggle("addAdmin"), ui.show.addAdmin ? "small" : "small secondary"),
+      ));
+      if (ui.show.addBody) {
+        const set = (k) => (v) => { bodyForm[k] = v; };
+        out.push(h("div", { class: "account-card" }, [
+          h("div", { class: "account-card-title" }, ["Add or rename a sanctioning body"]),
+          h("div", { class: "field-row" }, [field("Short id", input({ value: bodyCode(bodyForm.id), placeholder: "e.g. ARA" }, set("id"))), field("Name", input({ value: bodyForm.name, placeholder: "e.g. American Rally Association" }, set("name")))]),
+          h("div", { class: "field-row" }, [field("How it numbers logbooks", input({ value: bodyForm.note, placeholder: "e.g. scrutineer code + last 6 of the VIN" }, set("note")))]),
+          actions(btn("Save body", saveBody), btn("Cancel", () => toggle("addBody", false), "secondary")),
+        ]));
+      }
+      if (ui.show.addAdmin) {
+        out.push(h("div", { class: "account-card" }, [
+          h("div", { class: "account-card-title" }, ["Add a System admin"]),
+          h("div", { class: "field-row" }, [field("Email", input({ value: adminEmail, inputmode: "email" }, (v) => { adminEmail = v; }))]),
+          actions(btn("Add admin", addAdmin), btn("Cancel", () => toggle("addAdmin", false), "secondary")),
+        ]));
+      }
+    }
+    if (!manageable.length) out.push(desc("No sanctioning bodies yet."));
     manageable.forEach((b) => {
-      const people = ui.accreditations.filter((a) => a.body_id === b.id && (admin || !a.deleted_at));
-      out.push(h("div", { class: "account-card" }, [
-        h("div", { class: "account-card-title" }, [b.name + " (" + b.id + ")" + (status(b) !== "active" ? " -- " + status(b) : "")]),
-        b.logbook_number_note ? desc("Logbook numbers: " + b.logbook_number_note) : null,
-        admin ? actions(status(b) === "active" ? btn("Disable body", () => setBodyState(b, "disabled"), "small secondary") : btn("Re-enable body", () => setBodyState(b, "active"), "small secondary")) : null,
-        people.length ? h("table", { class: "account-table" }, [
-          h("tr", {}, ["Name", "Email", "Role", "License", "Expires", "Code", "Status", ""].map((t) => h("th", {}, [t]))),
-          people.map((a) => {
-            const canManage = admin || a.role === "scrutineer";
-            const st = status(a);
-            return h("tr", {}, [
-              h("td", {}, [a.name]), h("td", {}, [a.email]), h("td", {}, [a.role === "technical_director" ? "Technical director" : "Scrutineer"]),
-              h("td", {}, [a.license_number || ""]), h("td", {}, [a.license_expires ? fmtDate(a.license_expires) : "—"]), h("td", {}, [a.scrutineer_code || ""]),
-              h("td", { class: st === "active" ? "" : "account-warn" }, [st]),
-              h("td", { class: "account-row-actions" }, canManage ? [
-                btn(a.license_expires ? "Renew" : "Set expiry", () => renew(a), "small secondary"),
-                st === "disabled" || st === "deleted"
-                  ? btn("Re-enable", () => setAccState(a, "active"), "small secondary")
-                  : [btn("Disable", () => setAccState(a, "disabled"), "small secondary"), btn("Delete", () => setAccState(a, "deleted"), "small secondary")],
-              ] : []),
-            ]);
-          }),
-        ]) : desc("No scrutineers yet."),
+      const people = ui.accreditations.filter((a) => a.body_id === b.id && !a.deleted_at);
+      const own = bodyTemplates(b.id);
+      const sheet = own[0] || libraryFor(b.id)[0];
+      const st = accStatus(b);
+      const openIt = () => { ui.body = b.id; ui.bodyTab = "scrutineers"; ui.show.addAcc = false; ui.templateEdit = null; render(); };
+      out.push(h("div", { class: "account-card account-event-card", role: "button", tabindex: "0", onclick: openIt, onkeydown: (k) => { if (k.key === "Enter") openIt(); } }, [
+        h("div", { class: "account-card-title" }, [b.name + " (" + bodyCode(b.id) + ")", st !== "active" ? h("span", { class: "badge req" }, [st]) : null]),
+        desc([people.filter((a) => a.role === "technical_director").length + " technical director(s)", people.filter((a) => a.role === "scrutineer").length + " scrutineer(s)",
+          sheet ? "tech sheet: " + sheet.title + (own.length ? "" : " (automatic, from ruleset)") : "no tech sheet"].join(" · ")),
       ]));
     });
-    if (manageable.length) {
+    return out;
+  }
+  function renderBody(b) {
+    const admin = ui.roles.admin;
+    const people = ui.accreditations.filter((a) => a.body_id === b.id && (admin || !a.deleted_at));
+    const out = [
+      actions(btn("← All sanctioning bodies", () => { ui.body = null; ui.templateEdit = null; render(); }, "small secondary")),
+      h("h3", { class: "account-event-title" }, [b.name + " (" + bodyCode(b.id) + ")" + (accStatus(b) !== "active" ? " -- " + accStatus(b) : "")]),
+      b.logbook_number_note ? desc("Logbook numbers: " + b.logbook_number_note) : null,
+      admin ? actions(
+        btn("Edit body", () => { Object.assign(bodyForm, { id: b.id, name: b.name, note: b.logbook_number_note || "" }); toggle("editBody"); }, ui.show.editBody ? "small" : "small secondary"),
+        accStatus(b) === "active" ? btn("Disable body", () => setBodyState(b, "disabled"), "small secondary") : btn("Re-enable body", () => setBodyState(b, "active"), "small secondary"),
+      ) : null,
+      admin && ui.show.editBody ? h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, ["Edit " + b.name]),
+        h("div", { class: "field-row" }, [field("Short id (fixed)", input({ value: bodyCode(b.id), disabled: true }, () => {})), field("Name", input({ value: bodyForm.name }, (v) => { bodyForm.name = v; }))]),
+        h("div", { class: "field-row" }, [field("How it numbers logbooks", input({ value: bodyForm.note, placeholder: "e.g. scrutineer code + last 6 of the VIN" }, (v) => { bodyForm.note = v; }))]),
+        actions(btn("Save body", saveBody), btn("Cancel", () => toggle("editBody", false), "secondary")),
+      ]) : null,
+      tabs([["scrutineers", "Scrutineers (" + people.filter((a) => !a.deleted_at).length + ")"], ["techsheets", "Tech sheets (" + bodyTemplates(b.id).length + ")"]], ui.bodyTab, (t) => { ui.bodyTab = t; render(); }),
+    ];
+    if (ui.bodyTab === "techsheets") {
+      out.push(renderBodyTechSheets(b));
+      return out;
+    }
+    out.push(actions(btn(admin ? "Add a technical director or scrutineer" : "Add a scrutineer", () => toggle("addAcc"), ui.show.addAcc ? "small" : "small secondary")));
+    if (ui.show.addAcc) {
+      accForm.body = b.id;
       const set = (k) => (v) => { accForm[k] = v; };
       out.push(h("div", { class: "account-card" }, [
-        h("div", { class: "account-card-title" }, [admin ? "Add a technical director or scrutineer" : "Add a scrutineer"]),
+        h("div", { class: "account-card-title" }, [(admin ? "Add a technical director or scrutineer" : "Add a scrutineer") + " for " + b.name]),
         h("div", { class: "field-row" }, [field("Name", input({ value: accForm.name }, set("name"))), field("Email", input({ value: accForm.email, inputmode: "email" }, set("email")))]),
         h("div", { class: "field-row" }, [
-          field("Sanctioning body", select(manageable.map((b) => [b.id, b.name]), accForm.body, (v) => { accForm.body = v; })),
           admin ? field("Role", select([["scrutineer", "Scrutineer"], ["technical_director", "Technical director"]], accForm.role, (v) => { accForm.role = v; })) : null,
           field("License number", input({ value: accForm.license }, set("license"))),
-        ]),
-        h("div", { class: "field-row" }, [
           field("License expires (optional)", dateInput(accForm.expires, set("expires"))),
           field("Scrutineer code", input({ value: accForm.code, placeholder: "e.g. ARA 2-digit number" }, set("code"))),
         ]),
-        actions(btn("Save", grant)),
+        actions(btn("Save", grant), btn("Cancel", () => toggle("addAcc", false), "secondary")),
       ]));
     }
-    if (admin) {
-      const set = (k) => (v) => { bodyForm[k] = v; };
-      out.push(h("div", { class: "account-card" }, [
-        h("div", { class: "account-card-title" }, ["Add or rename a sanctioning body"]),
-        h("div", { class: "field-row" }, [field("Short id", input({ value: bodyForm.id, placeholder: "e.g. ara" }, set("id"))), field("Name", input({ value: bodyForm.name, placeholder: "e.g. American Rally Association" }, set("name")))]),
-        h("div", { class: "field-row" }, [field("How it numbers logbooks", input({ value: bodyForm.note, placeholder: "e.g. scrutineer code + last 6 of the VIN" }, set("note")))]),
-        actions(btn("Save body", saveBody)),
-      ]));
-      out.push(h("div", { class: "account-card" }, [
-        h("div", { class: "account-card-title" }, ["Add a Frog Racing admin"]),
-        h("div", { class: "field-row" }, [field("Email", input({ value: adminEmail, inputmode: "email" }, (v) => { adminEmail = v; }))]),
-        actions(btn("Add admin", addAdmin)),
-      ]));
-    }
+    out.push(people.length ? h("table", { class: "account-table" }, [
+      h("tr", {}, ["Name", "Email", "Role", "License", "Expires", "Code", "Status", ""].map((t) => h("th", {}, [t]))),
+      people.map((a) => {
+        const canManage = admin || a.role === "scrutineer";
+        const st = accStatus(a);
+        return h("tr", {}, [
+          h("td", {}, [a.name]), h("td", {}, [a.email]), h("td", {}, [a.role === "technical_director" ? "Technical director" : "Scrutineer"]),
+          h("td", {}, [a.license_number || ""]), h("td", {}, [a.license_expires ? fmtDate(a.license_expires) : "—"]), h("td", {}, [a.scrutineer_code || ""]),
+          h("td", { class: st === "active" ? "" : "account-warn" }, [st]),
+          h("td", { class: "account-row-actions" }, canManage ? [
+            btn(a.license_expires ? "Renew" : "Set expiry", () => renew(a), "small secondary"),
+            st === "disabled" || st === "deleted"
+              ? btn("Re-enable", () => setAccState(a, "active"), "small secondary")
+              : [btn("Disable", () => setAccState(a, "disabled"), "small secondary"), btn("Delete", () => setAccState(a, "deleted"), "small secondary")],
+          ] : []),
+        ]);
+      }),
+    ]) : desc("No scrutineers yet."));
     return out;
   }
 
@@ -1017,18 +1609,22 @@
     create: { title: "Create a new logbook", text: "Record a car's roll cage after its inspection, then issue its logbook online." },
     library: { title: "Logbook library", text: "Logbooks on this device and online: search, open, download, sync, delete." },
     event: { title: "Event mode", text: "Scrutineering at an event: download its logbooks, inspect each car, track what's left." },
-    admin: { title: "Admin mode", text: "Sanctioning bodies, scrutineers and their licenses, and events." },
+    events: { title: "Events", text: "Organize events: create them, their staff and tech sheet, and their competitors." },
+    bodies: { title: "Sanctioning bodies", text: "Technical directors, scrutineers and their licenses, and each body's tech sheets." },
   };
+
   function availableModes() {
     const r = ui.roles;
     const staff = r && r.accreditations.length > 0;
     const organizer = r && (r.admin || r.accreditations.some((a) => a.role === "technical_director"));
-    return ["create", "library"].concat(staff ? ["event"] : [], organizer ? ["admin"] : []);
+    return ["create", "library"].concat(staff ? ["event"] : [], organizer ? ["events", "bodies"] : []);
   }
   // The home screen shows the modes only; Event and Admin modes don't use
   // the logbook editor, and the library starts on its list -- each hides it.
   function goMode(mode) {
     if (mode !== "create" && app) app.hideWorkspace();
+    // Each section starts on its list: no event or body left open from before.
+    if (mode !== ui.mode) { ui.event = null; ui.techSheet = null; ui.body = null; ui.templateEdit = null; ui.show = {}; }
     ui.mode = mode; ui.message = null; render();
     holder.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -1102,18 +1698,19 @@
     const out = [modeHeader(m)];
     if (m === "create") out.push(renderCreate());
     if (m === "library") out.push(renderLibrary());
+    // An event open: its page; otherwise the list.
     if (m === "event") {
-      out.push(renderEventCards(ui.events.filter((e) => e.myRole), "No events yet: the events you're on the staff of show here."));
-      out.push(renderEvent("scrutineer"));
+      out.push(ui.event ? renderEvent("scrutineer") : renderEventCards(ui.events.filter((e) => e.myRole), "No events yet: the events you're on the staff of show here."));
     }
-    if (m === "admin") {
-      out.push(section("events", "Events", [
-        renderEventCards(ui.events.filter((e) => e.organizer), "No events yet."),
-        ui.event && ui.events.some((e) => e.id === ui.event.event.id && e.organizer) ? renderEvent("organize") : null,
-        renderCreateEvent(),
-      ]));
-      out.push(section("admin", "Sanctioning bodies and scrutineers", renderAdmin()));
+    if (m === "events") {
+      if (ui.event) out.push(renderEvent("organize"));
+      else {
+        out.push(organizerBodies().length ? actions(btn("Create new event", () => { if (!ui.show.createEvent) Object.assign(eventForm, blankEvent()); toggle("createEvent"); }, ui.show.createEvent ? "small" : "small secondary")) : null);
+        if (ui.show.createEvent) out.push(renderCreateEvent());
+        out.push(renderEventCards(ui.events.filter((e) => e.organizer), "No events yet."));
+      }
     }
+    if (m === "bodies") out.push(renderBodies());
     return out;
   }
 
@@ -1129,7 +1726,7 @@
       children.push(h("div", { class: "account-bar" }, [
         h("span", {}, ["Signed in as ", h("strong", {}, [ui.session.user.email])]),
         r ? h("span", { class: "account-roles" }, [
-          r.admin ? h("span", { class: "badge rec" }, ["Frog Racing admin"]) : null,
+          r.admin ? h("span", { class: "badge rec" }, ["System admin"]) : null,
           r.accreditations.map((a) => h("span", { class: "badge info", title: a.licenseExpires ? "License expires " + fmtDate(a.licenseExpires) : "" }, [roleLabel(a)])),
         ]) : null,
         btn("Sign out", () => sb.auth.signOut(), "small secondary"),
@@ -1137,8 +1734,8 @@
       if (r) {
         (r.expired || []).forEach((x) => children.push(h("p", { class: "verdict warn" }, ["Your " + x.bodyName + " license expired on " + fmtDate(x.licenseExpires) + ": ask your technical director to renew it."])));
         if (!availableModes().includes(ui.mode)) ui.mode = "home";
-        if (ui.mode === "home" || !app) children.push(renderHome());
-        else children.push(renderModeView(ui.mode));
+        const home = ui.mode === "home" || !app;
+        children.push(home ? renderHome() : renderModeView(ui.mode));
       }
     }
     // A long transfer running (photos, a batch of logbooks): its progress.

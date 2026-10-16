@@ -1,0 +1,190 @@
+{
+  "format": 1,
+  "id": "sccnh-gravel-trials",
+  "bodyId": "sccnh",
+  "passtechRulesetIds": ["sccnh-gravel-trials"],
+  "title": "SCCNH Gravel Trial Tech Form",
+  "revision": "undated",
+  "source": {
+    "form": "SCCNH Gravel Trial Tech Form",
+    "rules": "2026 SCCNH Gravel Trials Rules, Rev 1 12/2025"
+  },
+  "instructions": "Teams will inspect items marked \"team\". Scrutineer will check safety related items.",
+  "header": [
+    { "id": "event", "label": "Event", "type": "text", "prefill": "event", "required": true },
+    { "id": "car_number", "label": "Car #", "type": "text", "prefill": "car_number", "required": true },
+    { "id": "class", "label": "Class", "type": "choice", "options": ["R2U", "R2O", "R4U", "R4O", "EX"], "prefill": "class", "required": true },
+    { "id": "driver", "label": "Driver", "type": "text", "prefill": "driver", "required": true },
+    { "id": "make_model", "label": "Make/Model", "type": "text" },
+    { "id": "codriver", "label": "Co-driver", "type": "text", "prefill": "codriver", "required": true },
+    { "id": "vin", "label": "Vin #", "type": "text", "prefill": "vin" }
+  ],
+  "sections": [
+    {
+      "id": "personal",
+      "title": "Personal Safety Equipment",
+      "items": [
+        {
+          "id": "helmet",
+          "label": "Helmet",
+          "perOccupant": true,
+          "gear": "helmet",
+          "accepts": "Snell SA2015 (expires end of 2026), EA2016, SA2020 or SA2025; FIA 8860-2010, 8859-2015, 8860-2018 or 8859-2024 less than 10 years from manufacture; dual FIA/Snell: later expiration applies",
+          "rule": "SCCNH GT 12.1"
+        },
+        {
+          "id": "suit",
+          "label": "Suit",
+          "perOccupant": true,
+          "gear": "firesuit",
+          "accepts": "FIA 8856-2000, 8856-2018 or FIA 1986; SFI 3-2A/5 or 3-4A/5; SFI 3-2A/1 only with approved fire-resistant underwear",
+          "rule": "SCCNH GT 12.3"
+        },
+        {
+          "id": "hnr",
+          "label": "Head and Neck Device",
+          "perOccupant": true,
+          "gear": "hnr",
+          "accepts": "FIA 8858-2002 or 8858-2010, or SFI 38.1 with conformance label less than 5 years old; mounted per manufacturer",
+          "rule": "SCCNH GT 12.2"
+        }
+      ]
+    },
+    {
+      "id": "logbook",
+      "title": "Logbook",
+      "items": [
+        {
+          "id": "logbook",
+          "label": "Organization and #",
+          "accepts": "Log book from Rally America, SCCA Pro Rally, CARS, ARA, FIA or NASA Rallysport (other organizations need Chairman approval)",
+          "rule": "SCCNH GT 8",
+          "fields": [
+            { "id": "organization", "label": "Organization", "type": "text", "prefill": "logbook_body" },
+            { "id": "number", "label": "Logbook #", "type": "text", "prefill": "logbook_number" }
+          ]
+        },
+        { "id": "logbook_deficiency_repaired", "label": "Logbook deficiency repaired", "accepts": "Deficiencies noted in the log book have been repaired", "allowNA": true }
+      ]
+    },
+    {
+      "id": "front_end",
+      "title": "Vehicle Front End",
+      "items": [
+        { "id": "auxiliary_lights", "label": "Auxiliary Lights", "accepts": "Securely mounted, no higher than the top of the hood, beam toward the front", "rule": "SCCNH GT 13.4", "allowNA": true },
+        { "id": "headlights", "label": "Headlights high/low beams", "accepts": "Headlights function properly, high and low beam", "rule": "SCCNH GT 13.4" },
+        { "id": "directionals_front", "label": "Directionals", "accepts": "Front turn signals work" },
+        { "id": "wiper_washer", "label": "Windshield wiper and washer", "checkedBy": "team", "accepts": "Wipers and washer work" },
+        { "id": "horn", "label": "Horn", "checkedBy": "team", "accepts": "Works" },
+        { "id": "hood_pins", "label": "Hood pins", "gear": "hood_pins", "accepts": "Hood fixed closed with hood pins accessible from outside; other fasteners inoperative except secondary catch", "rule": "SCCNH GT 9.9" },
+        { "id": "towing_eye_front", "label": "Towing eye", "gear": "tow_hook", "accepts": "Front tow point present and sound", "rule": "SCCNH GT 9.7" }
+      ]
+    },
+    {
+      "id": "rear_end",
+      "title": "Vehicle Rear End",
+      "items": [
+        { "id": "tail_lights", "label": "Tail lights", "accepts": "Taillights function properly", "rule": "SCCNH GT 13.4" },
+        { "id": "brake_lights", "label": "Brake lights", "accepts": "Brake lights work" },
+        { "id": "directionals_rear", "label": "Directionals", "accepts": "Rear turn signals work" },
+        { "id": "reverse_lights", "label": "Reverse lights", "checkedBy": "team", "accepts": "Work" },
+        { "id": "license_plate_lights", "label": "License plate lights", "checkedBy": "team", "accepts": "Work" },
+        { "id": "tow_eye_rear", "label": "Tow eye", "gear": "tow_hook", "accepts": "Rear tow point present and sound", "rule": "SCCNH GT 9.7" }
+      ]
+    },
+    {
+      "id": "exterior",
+      "title": "Exterior of Vehicle",
+      "items": [
+        { "id": "neat_clean", "label": "Neat and clean", "checkedBy": "team", "accepts": "Car presented neat and clean" },
+        { "id": "windshield", "label": "Windshield - safety glass", "accepts": "Laminated safety-glass windshield, no damage obstructing vision" },
+        { "id": "windows_in_place", "label": "Windows in place", "checkedBy": "team", "accepts": "All windows in place" },
+        { "id": "rear_view_mirror", "label": "Rear view mirror", "checkedBy": "team", "accepts": "Present and secure" },
+        { "id": "crew_names", "label": "Driver/Co-driver names", "accepts": "Driver and co-driver names displayed on the car", "allowNA": true },
+        { "id": "event_sponsor", "label": "Event sponsor", "accepts": "Event decals placed as instructed at tech", "rule": "SCCNH GT 28" },
+        { "id": "numbers_class", "label": "Numbers and class", "accepts": "Car numbers min. 8 in tall, 1.25 in brush width, supplied by the entrant (class marking N/R)", "rule": "SCCNH GT 14.2", "allowNA": true },
+        { "id": "mud_flaps", "label": "Mud flaps-rear and driven wheels", "accepts": "Mud flaps behind rear and driven wheels" },
+        { "id": "other_org_decals", "label": "Other Org decals cover'd/remov'd", "accepts": "Rally school decals other than Team O'Neil (e.g. The Firm, DirtFish) and any SCCA decals removed or covered", "rule": "SCCNH GT 28" }
+      ]
+    },
+    {
+      "id": "interior",
+      "title": "Vehicle Interior Compartments",
+      "items": [
+        { "id": "roll_cage", "label": "Roll cage legality", "gear": "rollover_protection", "accepts": "Six-point mounting, A-pillar supports, min. two door bars per side, diagonals to each top corner of the main hoop, min. tubing 1.5\" x 0.095\" (regardless of log book)", "rule": "SCCNH GT 9.1" },
+        { "id": "cage_padding", "label": "FIA or SFI roll cage padding", "accepts": "SFI 45.1 or FIA 8857-2001 Type A on any bar the helmet can reach, including roofline bars and bars forward of the main hoop", "rule": "SCCNH GT 9.2" },
+        { "id": "floor_firewall", "label": "Floor pan and firewall, no holes", "accepts": "No holes in floor pan or firewall" },
+        { "id": "door_structure", "label": "Door structure or impact panel", "accepts": "Door structure intact or impact panel fitted; no exposed sharp edges" },
+        {
+          "id": "restraints",
+          "label": "Restraints , SFI/ FIA-5 yrs",
+          "gear": "belts_harness",
+          "accepts": "5-, 6- or 7-point harness for driver and co-driver, FIA 8853/98 or 8853/2016 or SFI 16.1/16.5, single-latch release; not past expiration and not older than 5 years from manufacture",
+          "rule": "SCCNH GT 9.4",
+          "fields": [
+            { "id": "driver_expires", "label": "Driver harness expiration", "type": "date" },
+            { "id": "codriver_expires", "label": "Co-driver harness expiration", "type": "date" }
+          ]
+        },
+        { "id": "restraint_mounting", "label": "Restraints angles/anchors/pins", "accepts": "Harness angles, anchors and hardware installed per manufacturer's instructions", "rule": "SCCNH GT 9" },
+        { "id": "seats", "label": "Seats securely fastened", "gear": "seat", "accepts": "FIA 8855-1999 or 8862-2009 (or racing seat accepted by Chief Scrutineer); no hinged-back or OEM seats; firmly mounted per manufacturer", "rule": "SCCNH GT 9.3" },
+        { "id": "battery", "label": "Battery, battery box, + post cov'd", "accepts": "Battery secure, boxed if relocated, positive post covered" },
+        { "id": "fuel_tank", "label": "Fuel tank or fuel cell", "checkedBy": "team", "accepts": "Tank or cell secure, no leaks" },
+        { "id": "fuel_lines_pump", "label": "Fuel lines, pump", "checkedBy": "team", "accepts": "Lines and pump secure, no leaks" },
+        { "id": "fuel_cell_bulkhead", "label": "Fuel cell bulkhead", "checkedBy": "team", "accepts": "Fuel tank/cell sealed from the cockpit" },
+        {
+          "id": "fire_extinguisher",
+          "label": "Fire Extinguisher: 10B:C min",
+          "gear": "fire_extinguisher",
+          "accepts": "1 x 10 B:C min. (or 2 x 5 B:C) inside the cockpit, one within reach of a seated crew member; metal strap and metal bracket; fill gauge visible",
+          "rule": "SCCNH GT 9.8",
+          "fields": [{ "id": "bc_rating", "label": "BC rating(s)", "type": "text" }]
+        },
+        { "id": "triangles", "label": "3 DOT triangles, 1 w/in reach", "gear": "emergency_triangle", "accepts": "3 emergency triangles, one within reach of a seated crew member", "rule": "SCCNH GT 9.5" },
+        { "id": "first_aid_kit", "label": "First Aid kit", "gear": "first_aid_kit", "accepts": "Not required by the rules (N/R); if carried, secure", "allowNA": true },
+        { "id": "tow_strap", "label": "Tow rope/strap", "gear": "tow_rope", "accepts": "Appropriate tow strap in the car", "rule": "SCCNH GT 9.6" },
+        { "id": "spill_kit", "label": "Environmental spill kit", "gear": "spill_kit", "accepts": "Not required by the rules (N/R); if carried, secure", "allowNA": true }
+      ]
+    },
+    {
+      "id": "exhaust",
+      "title": "Exhaust / Sound / Restrictor",
+      "items": [
+        { "id": "exhaust_secure", "label": "Exhaust secure", "checkedBy": "team", "accepts": "Exhaust securely mounted, no leaks" },
+        {
+          "id": "sound",
+          "label": "105 dbA max @ 18\" and 45 deg",
+          "accepts": "105 dBA max at 18 in from the tail pipe, 45 degrees, 2500 rpm (including anti-lag pops)",
+          "rule": "SCCNH GT 13.3",
+          "fields": [{ "id": "level", "label": "Sound level", "type": "number", "unit": "dBA" }]
+        },
+        {
+          "id": "restrictor",
+          "label": "Restrictor 30 / 32 / 34 / 36 mm",
+          "accepts": "4WD forced induction: inlet max. 36 mm, min. 3 mm wide, within 50 mm of the compressor wheel, all air through the restrictor",
+          "rule": "SCCNH GT 7A",
+          "allowNA": true,
+          "options": ["30 mm", "32 mm", "34 mm", "36 mm"],
+          "fields": [{ "id": "size", "label": "Restrictor size", "type": "number", "unit": "mm" }]
+        }
+      ]
+    },
+    {
+      "id": "suspension",
+      "title": "Suspension and Running Gear",
+      "items": [
+        { "id": "tires_wheels", "label": "Tires and wheels, incl spare", "accepts": "Appropriate tires; DOT studded tires only at winter events; no homemade studs, bolts or chains", "rule": "SCCNH GT 13.2" },
+        { "id": "brakes", "label": "Brakes", "checkedBy": "team", "accepts": "Firm pedal, no leaks" },
+        { "id": "parking_brake", "label": "Parking brake", "checkedBy": "team", "accepts": "Holds the car" },
+        { "id": "wheel_bearings_steering", "label": "Wheel bearings, steering linkage", "checkedBy": "team", "accepts": "No excessive play" },
+        { "id": "shocks_suspension", "label": "Shocks/suspension", "checkedBy": "team", "accepts": "Secure, no leaks or damage" },
+        { "id": "brake_hoses_cables", "label": "Brake hoses/cables", "checkedBy": "team", "accepts": "No leaks, chafing or damage" },
+        { "id": "suspension_arms", "label": "Suspension arms/mounting points", "checkedBy": "team", "accepts": "No cracks or damage" }
+      ]
+    }
+  ],
+  "signoff": [
+    { "id": "scrutineer", "label": "Scrutineer", "license": false },
+    { "id": "chief", "label": "Chief Scrutineer", "license": false }
+  ]
+}

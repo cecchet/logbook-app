@@ -1,0 +1,264 @@
+{
+  "format": 1,
+  "id": "nasa-rallysport",
+  "bodyId": "nasa",
+  "passtechRulesetIds": ["nasa-rallysport"],
+  "title": "NASA Rally Sport Scrutineering Sheet",
+  "revision": "2013",
+  "source": {
+    "form": "NASA Rally Sport Scrutineering Sheet (2013 Sandblast Rally sample)",
+    "rules": "NASA Rally Sport GRR Section 3: Technical Regulations for Cars, v16.0"
+  },
+  "instructions": "Team declaration: I represent the car and team listed above and I certify the roadworthiness and road legality of the above listed vehicle. 'Roadworthiness' includes, but is not limited to, the following items: FRONT END: headlights, driving lights, turn signals, parking lights, horn, windshield wipers and washers, rear view mirror. REAR END: tail lights, brake lights, license light, turn signals, backup lights. SUSPENSION AND RUNNING GEAR: steering linkage, suspension, shocks, wheel bearings, brakes, brake lines and hoses, wheels, tires, exhaust, service and parking brakes.",
+  "header": [
+    { "id": "event", "label": "Event", "type": "text", "prefill": "event", "required": true },
+    { "id": "type", "label": "Type", "type": "text" },
+    { "id": "car_number", "label": "Number", "type": "text", "prefill": "car_number", "required": true },
+    { "id": "driver", "label": "Driver", "type": "text", "prefill": "driver", "required": true },
+    { "id": "codriver", "label": "Navigator", "type": "text", "prefill": "codriver", "required": true },
+    { "id": "year", "label": "Year", "type": "number", "prefill": "year" },
+    { "id": "make", "label": "Make", "type": "text", "prefill": "make" },
+    { "id": "model", "label": "Model", "type": "text", "prefill": "model" },
+    { "id": "vin", "label": "VIN", "type": "text", "prefill": "vin" },
+    { "id": "plate", "label": "Plate", "type": "text", "prefill": "plate" },
+    { "id": "plate_state", "label": "State", "type": "text" },
+    { "id": "driver_contact", "label": "Driver contact", "type": "text" },
+    { "id": "codriver_contact", "label": "Codriver contact", "type": "text" },
+    { "id": "team_representative", "label": "Team Representative", "type": "choice", "options": ["Driver", "Codriver", "Crew"] }
+  ],
+  "sections": [
+    {
+      "id": "gear",
+      "title": "Driver Gear / Codriver Gear",
+      "items": [
+        {
+          "id": "helmet",
+          "label": "Helmet Expiration",
+          "perOccupant": true,
+          "gear": "helmet",
+          "accepts": "Snell SA2015, SA2020 or newer; FIA 8860-2010, 8860-2018 or newer; FIA 8859-2015, 8859-2024 or newer; unmodified; not over 10 years old",
+          "rule": "NRS GRR 3.36.1.1",
+          "fields": [{ "id": "helmet_date", "label": "Helmet date", "type": "date" }]
+        },
+        {
+          "id": "hnr",
+          "label": "H&N Gear",
+          "perOccupant": true,
+          "gear": "hnr",
+          "accepts": "SFI 38.1 (not expired), FIA 8858-2002 or 8858-2010 (FIA tethers not past manufacture year + 5)",
+          "rule": "NRS GRR 3.36.1.3"
+        },
+        {
+          "id": "suit",
+          "label": "Suit Approved",
+          "perOccupant": true,
+          "gear": "firesuit",
+          "accepts": "FIA 8856-2000, 8856-2018 or newer, or FIA 1986; SFI 3-2A/5; SFI 3-2A/1 only with FIA- or SFI-spec fire-resistant underwear",
+          "rule": "NRS GRR 3.36.1.2"
+        },
+        {
+          "id": "required_patches",
+          "label": "Required Patches",
+          "perOccupant": true,
+          "accepts": "Patches required by the series/event regulations sewn on the suit",
+          "allowNA": true
+        }
+      ]
+    },
+    {
+      "id": "exterior",
+      "title": "Exterior",
+      "items": [
+        { "id": "windshield_windows", "label": "Windshield/Windows", "accepts": "Laminated safety-glass windshield free of structural damage; polycarbonate replacements min. 1/8\" allowing escape and rescue", "rule": "NRS GRR 3.22" },
+        { "id": "mud_flaps", "label": "Mud Flaps (rear and drive wheels)", "accepts": "Mud flaps on all wheels (current GRR; the form's 'rear and drive wheels' is older wording)", "rule": "NRS GRR 3.32" },
+        { "id": "tow_eyes", "label": "Tow Eyes (front and rear)", "gear": "tow_hook", "accepts": "All-metal tow points front and rear on chassis/shell, golf-ball-size opening, painted/arrowed yellow, red or orange, reachable without crawling under the car", "rule": "NRS GRR 3.26" },
+        { "id": "damage_noted_logbook", "label": "Safety related damage noted in log book", "accepts": "Safety-related damage and repairs recorded in the log book" }
+      ]
+    },
+    {
+      "id": "safety_equipment",
+      "title": "Safety Equipment",
+      "items": [
+        { "id": "first_aid_kit", "label": "First Aid Kit", "gear": "first_aid_kit", "accepts": "In the cockpit with antiseptic, gauze, adhesive tape, arm sling, safety pins, scissors, 2 space blankets and first aid manual", "rule": "NRS GRR 3.16" },
+        {
+          "id": "fire_extinguishers",
+          "label": "Fire extinguisher 1x10BC or 2x5BC",
+          "gear": "fire_extinguisher",
+          "accepts": "Two or more hand-held extinguishers, min. 10 B:C each (or listed equivalents), in the cockpit, one within reach of a seated crew member; an on-board system does not count. The form's 1x10BC or 2x5BC is superseded",
+          "rule": "NRS GRR 3.15.1, 3.15.2",
+          "fields": [{ "id": "bc_rating", "label": "BC rating(s)", "type": "text" }]
+        },
+        {
+          "id": "fire_extinguisher_date",
+          "label": "Fire extinguisher inspection date",
+          "accepts": "Purchased, inspected or recharged within the preceding 2 years (all extinguishers within reach)",
+          "rule": "NRS GRR 3.15.3",
+          "fields": [{ "id": "inspection_date", "label": "Inspection date", "type": "date" }]
+        },
+        { "id": "triangles", "label": "3 DOT Triangles (1 near codriver)", "gear": "emergency_triangle", "accepts": "3 self-supporting reflective triangles, min. 14 in tip to opposite side, one within reach of a seated crew member", "rule": "NRS GRR 3.17" }
+      ]
+    },
+    {
+      "id": "interior",
+      "title": "Interior",
+      "items": [
+        { "id": "fuel_splash_shield", "label": "FIA 2 volume fuel splash shield", "accepts": "Two-volume (hatchback/wagon) cars: fuel-resistant, fire-retardant bulkhead fully separating tank, pump, filler and lines from the cockpit", "rule": "NRS GRR 3.25.1", "allowNA": true },
+        { "id": "camera_mounts", "label": "Camera Mounts", "accepts": "Mounts cannot be struck by the crew; cameras over 0.5 lb secured at 2 points, non-elastic, non-plastic", "rule": "NRS GRR 3.35", "allowNA": true },
+        { "id": "battery_interior", "label": "Battery box, battery secure", "accepts": "Metal-to-metal mounts; positive terminal covered unless in a non-conductive box; sealed type if in the cockpit", "rule": "NRS GRR 3.19" },
+        {
+          "id": "harness",
+          "label": "Harness Expiration dates No exceptions",
+          "perOccupant": true,
+          "gear": "belts_harness",
+          "accepts": "5-, 6- or 7-point harness of current FIA or SFI spec, no mixed parts; SFI not past tag date, FIA usable through Dec 31 of the label year. No exceptions",
+          "rule": "NRS GRR 3.10",
+          "fields": [{ "id": "expires", "label": "Expiration", "type": "date" }]
+        },
+        {
+          "id": "seat_secure",
+          "label": "Seats are secure",
+          "perOccupant": true,
+          "accepts": "Firmly mounted to shell/chassis, fasteners min. 8 mm grade 5 / 8.8, no sliders",
+          "rule": "NRS GRR 3.9"
+        },
+        {
+          "id": "seat_certified",
+          "label": "Seats are FIA cert or back brace",
+          "perOccupant": true,
+          "gear": "seat",
+          "accepts": "FIA 8855-1999, 8855-2021 or 8862-2009 (later two with their supplied mount); the form's 'back brace' option is no longer accepted",
+          "rule": "NRS GRR 3.9"
+        },
+        { "id": "roll_cage", "label": "Roll Cage", "gear": "rollover_protection", "accepts": "Cage and NRS (or FIA) log book required; FIA-homologated or built to FIA App. J Art. 253 with NRS tube sizes; older log books per their issue-year rules", "rule": "NRS GRR 3.7" },
+        { "id": "cage_padding", "label": "Roll Cage padding", "accepts": "FIA 8857-2001 Type A or SFI 45.1 wherever a helmet could contact the cage", "rule": "NRS GRR 3.8.1" }
+      ]
+    },
+    {
+      "id": "engine",
+      "title": "Engine Compartment",
+      "items": [
+        { "id": "engine_fuel_oil_lines", "label": "Fuel / Oil Lines / Pumps", "accepts": "Lines and pumps secure, no leaks or chafing" },
+        { "id": "engine_clean", "label": "Clean and Neat", "accepts": "Engine bay clean and neat" },
+        { "id": "brake_fluid", "label": "Brake Fluid Level", "accepts": "Reservoir at proper level, no leaks" },
+        { "id": "battery_engine", "label": "Battery box, battery secure", "accepts": "Metal-to-metal mounts; positive terminal covered unless in a non-conductive box", "rule": "NRS GRR 3.19" },
+        { "id": "wiring", "label": "Wiring", "accepts": "Wiring secure; battery primary wiring not routed between cage tubing and shell", "rule": "NRS GRR 3.19.2" },
+        { "id": "fluid_leaks", "label": "Fluid Leaks", "accepts": "No fluid leaks" }
+      ]
+    },
+    {
+      "id": "trunk",
+      "title": "Trunk",
+      "items": [
+        { "id": "fuel_tank", "label": "Fuel Tank / Fuel Cell", "gear": "fuel_cell", "accepts": "OEM tank in OEM location with OEM mounts, or SFI 28.3 / FIA FT3, FT3.5 or FT5 bladder cell in a metal container, vented outside, not more than 5 years from manufacture (or manufacturer recertified)", "rule": "NRS GRR 3.25, 3.25.2" },
+        { "id": "fuel_bulkhead", "label": "Bulkhead", "accepts": "Fuel-resistant, fire-retardant solid bulkhead fully separating tank, pump, filler, connections and vents from the cockpit; access panels sealed", "rule": "NRS GRR 3.25.1" },
+        { "id": "trunk_fuel_lines_pumps", "label": "Fuel Lines and Pumps", "accepts": "Lines through cockpit metal-cased, 200 psi, no cockpit connectors; pumps run only with engine running and behind a sealed metal bulkhead", "rule": "NRS GRR 3.25.4-3.25.6" },
+        { "id": "battery_trunk", "label": "Battery box, battery secure", "accepts": "Metal-to-metal mounts; relocated flooded batteries in a covered non-conductive box", "rule": "NRS GRR 3.19" },
+        { "id": "tow_rope", "label": "Tow Rope", "gear": "tow_rope", "accepts": "Kinetic recovery rope/strap, min. 3/4\" thick and 19 ft long, no metal ends, stowed inside the car", "rule": "NRS GRR 3.27" },
+        { "id": "spares_secure", "label": "Spares secure", "accepts": "Spare wheel and spares firmly secured; no loose articles", "rule": "NRS GRR 3.13, 3.28" }
+      ]
+    },
+    {
+      "id": "turbo_restrictor",
+      "title": "Turbo Restrictor",
+      "items": [
+        {
+          "id": "restrictor_size",
+          "label": "Size in mm",
+          "accepts": "Open AWD Heavy: max. 34 mm internal (twin compressors 22.6 mm each); not required in other classes",
+          "rule": "NRS GRR 3.14.1",
+          "allowNA": true,
+          "fields": [{ "id": "size", "label": "Restrictor size", "type": "number", "unit": "mm" }]
+        },
+        {
+          "id": "restrictor_sealed",
+          "label": "Sealed? Y/N",
+          "accepts": "Fasteners drilled and wired/sealed so the restrictor cannot be removed without removing the wire",
+          "rule": "NRS GRR 3.14.2",
+          "allowNA": true,
+          "fields": [{ "id": "seal_number", "label": "Seal number", "type": "text" }]
+        },
+        {
+          "id": "restrictor_external",
+          "label": "External Y/N",
+          "accepts": "Restrictor fixed to the compressor housing inlet, single piece, min. 3 mm long, all intake air through it",
+          "rule": "NRS GRR 3.14.2",
+          "allowNA": true
+        }
+      ]
+    },
+    {
+      "id": "measurements",
+      "title": "Measurements",
+      "items": [
+        {
+          "id": "exhaust_noise",
+          "label": "Exhaust noise level DBA",
+          "accepts": "Max. 105 dBA at 2500 rpm, 18 in from the outlet, 45 degrees off centerline",
+          "rule": "NRS GRR 3.24",
+          "fields": [{ "id": "level", "label": "Sound level", "type": "number", "unit": "dBA" }]
+        },
+        { "id": "catalytic_converter", "label": "Catalytic Converter (stock class only)", "accepts": "Functioning catalytic converter where the class requires it", "allowNA": true },
+        {
+          "id": "tread_depth",
+          "label": "Tread depth (tarmac rally only)",
+          "accepts": "Tarmac events: 5.5 mm molded tread pattern, min. 1.6 mm over three quarters of the tread; no slicks or DOT-R tires",
+          "rule": "NRS GRR 3.13.1",
+          "allowNA": true,
+          "fields": [{ "id": "depth", "label": "Tread depth", "type": "number", "unit": "mm" }]
+        },
+        {
+          "id": "weight",
+          "label": "Weight",
+          "accepts": "At or above the class minimum weight (no fuel, crew or crew equipment)",
+          "rule": "NRS GRR 3.2.4",
+          "allowNA": true,
+          "fields": [{ "id": "weight", "label": "Weight", "type": "number", "unit": "lb" }]
+        }
+      ]
+    },
+    {
+      "id": "stickers",
+      "title": "Stickers",
+      "items": [
+        { "id": "race_number", "label": "Race Number Correct", "accepts": "Assigned race number displayed correctly" },
+        { "id": "number_header_footer", "label": "Correct Number header and footer", "accepts": "Correct number header and footer decals" },
+        { "id": "event_sponsors", "label": "Event Sponsors", "accepts": "Event sponsor decals placed as instructed" },
+        { "id": "other_body_stickers_covered", "label": "RA / CARS stickers completely covered / removed", "accepts": "Other sanctioning bodies' stickers fully covered or removed" },
+        {
+          "id": "contingency_stickers",
+          "label": "List any contingency stickers",
+          "accepts": "Contingency stickers recorded",
+          "allowNA": true,
+          "fields": [{ "id": "list", "label": "Contingency stickers", "type": "text" }]
+        }
+      ]
+    },
+    {
+      "id": "logbook",
+      "title": "Log Book",
+      "items": [
+        {
+          "id": "logbook_body",
+          "label": "Log Book Sanctioning Body",
+          "accepts": "NRS log book, or another body's log book accepted for inspection",
+          "rule": "NRS GRR 3.7",
+          "fields": [{ "id": "body", "label": "Sanctioning body", "type": "text", "prefill": "logbook_body" }]
+        },
+        {
+          "id": "logbook_number",
+          "label": "Log Book Number",
+          "accepts": "Log book number recorded",
+          "fields": [{ "id": "number", "label": "Log book number", "type": "text", "prefill": "logbook_number" }]
+        },
+        { "id": "logbook_address", "label": "Address on last page of log book?", "accepts": "Current owner contact information recorded in the log book", "rule": "NRS GRR 3.7.6" },
+        { "id": "logbook_event_page", "label": "Page for this event filled out by entrant?", "accepts": "Event page completed by the entrant" },
+        { "id": "homologation_papers", "label": "Correct homologation papers (Group A/N only)", "accepts": "Current FIA homologation papers for the car", "allowNA": true },
+        { "id": "vin_matches", "label": "VIN above matches logbook and car", "accepts": "VIN on this sheet matches the log book and the car's shell", "rule": "NRS GRR 3.7.6" }
+      ]
+    }
+  ],
+  "signoff": [
+    { "id": "team", "label": "Team representative", "license": false },
+    { "id": "scrutineer", "label": "Scrutineer", "license": false }
+  ]
+}

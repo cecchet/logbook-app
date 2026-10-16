@@ -1,0 +1,557 @@
+{
+  "format": 1,
+  "id": "neha",
+  "bodyId": "neha",
+  "passtechRulesetIds": [
+    "neha-competitive",
+    "neha-x"
+  ],
+  "title": "NEHA Tech Inspection Form",
+  "revision": "undated",
+  "source": {
+    "form": "NEHA Tech Inspection Form (page 1, standard) and NEHA Tech Inspection Form X Car (page 2)",
+    "rules": "New England Hillclimb Association Rules, 2026 Edition"
+  },
+  "variants": [
+    {
+      "id": "standard",
+      "label": "Standard"
+    },
+    {
+      "id": "x",
+      "label": "X car"
+    }
+  ],
+  "header": [
+    {
+      "id": "car_number",
+      "label": "Car number",
+      "type": "text",
+      "prefill": "car_number",
+      "required": true
+    },
+    {
+      "id": "class",
+      "label": "Class",
+      "type": "text",
+      "prefill": "class",
+      "required": true
+    },
+    {
+      "id": "driver",
+      "label": "Driver",
+      "type": "text",
+      "prefill": "driver",
+      "required": true
+    },
+    {
+      "id": "logbook",
+      "label": "Logbook",
+      "type": "choice",
+      "options": [
+        "NEHA",
+        "ARA",
+        "NASA",
+        "CARS",
+        "OTHER"
+      ],
+      "prefill": "logbook_body"
+    },
+    {
+      "id": "logbook_other",
+      "label": "Logbook (other)",
+      "type": "text"
+    }
+  ],
+  "sections": [
+    {
+      "id": "helmet",
+      "title": "Helmet",
+      "items": [
+        {
+          "id": "helmet",
+          "label": "Helmet",
+          "gear": "helmet",
+          "accepts": "Snell SA2015 or newer (SA2015 discontinued after the 2026 season); FIA 8860-2010, 8859-2015, 8860-2018 or 8859-2024 less than 10 years from manufacture; good condition",
+          "rule": "NEHA 1.3.3",
+          "options": [
+            "SA2015 or newer",
+            "FIA 8860-2010, 8859-2015, 8860-2018, 8859-2024 (<10 years from manufacture)"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hans",
+      "title": "HANS",
+      "items": [
+        {
+          "id": "hnr",
+          "label": "HANS",
+          "gear": "hnr",
+          "accepts": "HANS FIA 8858-2002 or 8858-2010, Hybrid FIA 8858-2010, or SFI 38.1 with conformance label less than 5 years old",
+          "rule": "NEHA 1.4.2",
+          "variants": [
+            "standard"
+          ],
+          "options": [
+            "FIA 8858-2002",
+            "FIA 8858-2010",
+            "Hybrid 8858-2010",
+            "SFI 38.1 (cert date <5 years)"
+          ]
+        },
+        {
+          "id": "hnr_tether",
+          "label": "Tether no older than 5 years",
+          "accepts": "Tethers less than 5 years old",
+          "rule": "NEHA 1.4.2.4",
+          "variants": [
+            "standard"
+          ],
+          "fields": [
+            {
+              "id": "tether_date",
+              "label": "Tether date",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "suit",
+      "title": "Suit / Clothes",
+      "items": [
+        {
+          "id": "firesuit",
+          "label": "Suit",
+          "gear": "firesuit",
+          "accepts": "FIA 8856-2000 or 8856-2018; SFI 3.2A/5 or 3.4/5; FIA 1986 or SFI 3.2A/1 only with FIA 8856-2000 or SFI 3.3 underwear; nothing worn over the suit",
+          "rule": "NEHA 1.4.1.2, 1.4.1.3",
+          "variants": [
+            "standard"
+          ],
+          "options": [
+            "FIA 8856-2000",
+            "FIA 8856-2018",
+            "FIA 1986 Standard",
+            "SFI 3.2A/5",
+            "SFI 3.4/5",
+            "SFI 3.2A/1 with FIA 8856-2000 or SFI 3.3 undergarments"
+          ]
+        },
+        {
+          "id": "suit_condition",
+          "label": "No rips, tears, oil stains",
+          "accepts": "Suit covers neck to ankles and wrists; clean, no defects, stains, holes or frays",
+          "rule": "NEHA 1.4.1.4",
+          "variants": [
+            "standard"
+          ]
+        },
+        {
+          "id": "long_clothing",
+          "label": "Long pants / long shirt (X car)",
+          "accepts": "Full clothing (long sleeves, long pants, socks) of fire-resistant material such as cotton, linen, leather or wool; no meltable synthetics",
+          "rule": "NEHA 1.3.1",
+          "allowNA": true,
+          "variants": [
+            "x"
+          ]
+        },
+        {
+          "id": "firesuit_x",
+          "label": "Fire suit",
+          "gear": "firesuit",
+          "accepts": "Fire suit in good condition, worn instead of fire-resistant long pants/long shirt (a certified suit is not required for X cars)",
+          "variants": [
+            "x"
+          ],
+          "allowNA": true
+        },
+        {
+          "id": "gloves",
+          "label": "FIA or SFI gloves",
+          "gear": "gloves",
+          "accepts": "SFI or FIA rated gloves, no stains or holes",
+          "rule": "NEHA 1.4.1.5",
+          "variants": [
+            "standard"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "belts",
+      "title": "Belts",
+      "items": [
+        {
+          "id": "belts",
+          "label": "Belts",
+          "gear": "belts_harness",
+          "accepts": "5-, 6- or 7-point SFI 16.1/16.5 or FIA 8853/2016 or 8853/98 harness; not past tagged expiration or more than 5 years from manufacture (untagged = out of date); no Y or V shoulder harness",
+          "rule": "NEHA 1.4.3.1, 1.4.3.2, 1.4.3.5",
+          "variants": [
+            "standard"
+          ],
+          "options": [
+            "FIA 8853/2016",
+            "FIA 8853/98",
+            "SFI 16.5",
+            "SFI 16.1"
+          ],
+          "fields": [
+            {
+              "id": "expires",
+              "label": "Year / month of expiration",
+              "type": "date"
+            }
+          ]
+        },
+        {
+          "id": "belts_not_mismatched",
+          "label": "Belts not mismatched",
+          "accepts": "Complete harness set, parts not mixed between sets; not altered from original condition",
+          "rule": "NEHA 1.4.3.4",
+          "variants": [
+            "standard"
+          ]
+        },
+        {
+          "id": "belt_angles",
+          "label": "Belt angles",
+          "accepts": "Belt angles per SFI installation guide, FIA App. J Art. 253 section 6.2, or harness manufacturer",
+          "rule": "NEHA 1.4.3.6",
+          "variants": [
+            "standard"
+          ]
+        },
+        {
+          "id": "belt_anchoring",
+          "label": "Belt anchoring points",
+          "accepts": "Anchor points per installation guide, each capable of 3300 lbf (OE anchor points adequate); correct hardware",
+          "rule": "NEHA 1.4.3.3, 1.4.3.6, 1.4.3.7",
+          "variants": [
+            "standard"
+          ]
+        },
+        {
+          "id": "belt_clip_pins",
+          "label": "Pins in clips if used",
+          "accepts": "Safety pins fitted in snap-hook clips where clips are used",
+          "variants": [
+            "standard"
+          ],
+          "allowNA": true
+        },
+        {
+          "id": "belts_triple_wrapped",
+          "label": "Triple wrapped belts",
+          "accepts": "Wrap-around mounts and adjusters threaded/locked per harness manufacturer",
+          "variants": [
+            "standard"
+          ],
+          "allowNA": true
+        },
+        {
+          "id": "belts_no_fraying",
+          "label": "No fraying",
+          "gear": "belts_harness",
+          "accepts": "Belts in good condition, no fraying; OE 3-point belts are adequate for X cars",
+          "rule": "NEHA 1.3.11.2",
+          "variants": [
+            "x"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "seats",
+      "title": "Seat(s)",
+      "items": [
+        {
+          "id": "seat_mounting",
+          "label": "Proper mounting",
+          "gear": "seat",
+          "accepts": "Seat mounted to substantial structure in line with harness loads (OE mountings adequate); with a 5+ point harness, fixed-back racing seat",
+          "rule": "NEHA 1.3.11, 1.4.4.2, 1.4.4.4"
+        },
+        {
+          "id": "seat_no_play",
+          "label": "No play",
+          "accepts": "No play in the seat",
+          "rule": "NEHA 1.4.4.3"
+        },
+        {
+          "id": "seat_no_alteration",
+          "label": "No alteration",
+          "accepts": "Seat not altered; safe condition",
+          "rule": "NEHA 1.3.11.1, 1.4.4.1"
+        },
+        {
+          "id": "seat_fitment",
+          "label": "Seat fitment for all drivers (if shared car)",
+          "accepts": "Seat width and height fit each driver; headrest max. 3 in behind the helmet",
+          "rule": "NEHA 1.4.4.2",
+          "variants": [
+            "standard"
+          ],
+          "allowNA": true
+        }
+      ]
+    },
+    {
+      "id": "interior",
+      "title": "Car interior / Cage",
+      "items": [
+        {
+          "id": "cage_padding",
+          "label": "Cage padding where head could hit bars",
+          "accepts": "High-density shock-absorbing padding (SFI or FIA) on any cage member the driver's head can reach",
+          "rule": "NEHA 1.4.6.2",
+          "variants": [
+            "standard"
+          ],
+          "options": [
+            "SFI",
+            "FIA"
+          ]
+        },
+        {
+          "id": "fire_extinguisher",
+          "label": "2.5lb ABC fire extinguisher",
+          "gear": "fire_extinguisher",
+          "accepts": "Min. 2.5 lb ABC portable extinguisher with gauge, within reach of the driver, not on the driver's footwell floor",
+          "rule": "NEHA 1.3.9.1, 1.3.9.4, 1.3.9.5"
+        },
+        {
+          "id": "extinguisher_tag",
+          "label": "Extinguisher tag within 3 years",
+          "accepts": "Inspection tag or manufacture date within the last 3 years",
+          "rule": "NEHA 1.3.9.2",
+          "fields": [
+            {
+              "id": "tag_date",
+              "label": "Tag / manufacture date",
+              "type": "date"
+            }
+          ]
+        },
+        {
+          "id": "extinguisher_anti_torpedo",
+          "label": "Extinguisher anti-torpedo bracket",
+          "accepts": "Bracket securely mounted with anti-torpedo tab",
+          "rule": "NEHA 1.3.9.3"
+        },
+        {
+          "id": "extinguisher_metal_bracket",
+          "label": "Extinguisher metal bracket / strap",
+          "accepts": "Metal bracket and latching metal strap; over 2.5 lb net needs an extra metal restraint",
+          "rule": "NEHA 1.3.9.4, 1.3.9.6"
+        },
+        {
+          "id": "extinguisher_gauge",
+          "label": "Extinguisher gauge in green",
+          "accepts": "Gauge reads in the green",
+          "rule": "NEHA 1.3.9.1"
+        },
+        {
+          "id": "air_horn",
+          "label": "Air horn",
+          "accepts": "Compressed air horn secured within reach of the driver",
+          "rule": "NEHA 1.3.18"
+        },
+        {
+          "id": "battery_positive_interior",
+          "label": "Battery positive covered",
+          "accepts": "Positive terminal covered with a non-conducting cover",
+          "rule": "NEHA 1.3.13.3"
+        },
+        {
+          "id": "battery_sealed",
+          "label": "Battery sealed from driver",
+          "accepts": "Battery securely mounted and sealed from the driver; insulated box if sharing a compartment with the fuel tank",
+          "rule": "NEHA 1.3.13.2, 1.3.13.4"
+        },
+        {
+          "id": "spill_kit",
+          "label": "Spill kit",
+          "gear": "spill_kit",
+          "accepts": "Disposal (trash) bag carried for fluid-spill debris",
+          "rule": "NEHA 1.3.10.3"
+        },
+        {
+          "id": "fuel_cell_bulkhead",
+          "label": "Fuel cell bulkhead",
+          "gear": "fuel_cell",
+          "accepts": "Gas tank or fuel cell sealed from the driver (SFI/FIA fuel cells count as sealed); secure, no leaks",
+          "rule": "NEHA 1.3.14.1-1.3.14.3",
+          "variants": [
+            "standard"
+          ]
+        },
+        {
+          "id": "kill_switch",
+          "label": "Kill switch in Prepared and FL cars",
+          "gear": "kill_switch",
+          "accepts": "Prepared and FL classes: switch isolates all electrical power, marked with lightning bolt symbol and OFF position",
+          "rule": "NEHA 1.4.7",
+          "variants": [
+            "standard"
+          ],
+          "allowNA": true
+        },
+        {
+          "id": "fuel_lines_inside_cage",
+          "label": "Fuel lines run inside the cage",
+          "accepts": "Fuel lines securely mounted and protected from heat, collision and abrasion",
+          "rule": "NEHA 1.3.14.6",
+          "variants": [
+            "standard"
+          ]
+        },
+        {
+          "id": "wires_inside_cage",
+          "label": "Wires run inside the cage",
+          "accepts": "No frayed, loose or pinchable wires; battery cable not through frame rails or cage tubing",
+          "rule": "NEHA 1.3.13.1",
+          "variants": [
+            "standard"
+          ]
+        },
+        {
+          "id": "no_loose_objects",
+          "label": "No loose objects, no floor mats",
+          "accepts": "No loose objects, carpets or mats; small items in a closed compartment or secured",
+          "rule": "NEHA 1.3.10.1, 1.3.10.2"
+        },
+        {
+          "id": "spare_tire",
+          "label": "Spare tire removed or properly secured",
+          "accepts": "Spare removed or securely restrained"
+        }
+      ]
+    },
+    {
+      "id": "under_hood",
+      "title": "Under Hood",
+      "items": [
+        {
+          "id": "oil_leaks",
+          "label": "No excessive oil leaks",
+          "accepts": "No oil leaks; no excessive oil in the engine compartment",
+          "rule": "NEHA 1.3.16.1, 1.3.16.2"
+        },
+        {
+          "id": "oil_catch_can",
+          "label": "Oil catch can",
+          "accepts": "Oil overflow catch can or breather system, or OEM system in place",
+          "rule": "NEHA 1.3.16.3",
+          "variants": [
+            "standard"
+          ]
+        },
+        {
+          "id": "oil_catch_can_x",
+          "label": "Oil catch can or OEM PCV",
+          "accepts": "Oil overflow catch can or breather system, or OEM system in place",
+          "rule": "NEHA 1.3.16.3",
+          "variants": [
+            "x"
+          ]
+        },
+        {
+          "id": "firewall",
+          "label": "Firewall between engine and driver",
+          "accepts": "Firewall between engine and driver",
+          "rule": "NEHA 1.3.8.3"
+        },
+        {
+          "id": "brake_fluid",
+          "label": "Brake fluid full",
+          "accepts": "Master cylinder full, no leaks",
+          "rule": "NEHA 1.3.6.1, 1.3.6.2"
+        },
+        {
+          "id": "battery_positive_hood",
+          "label": "Battery positive covered",
+          "accepts": "Positive terminal covered with a non-conducting cover",
+          "rule": "NEHA 1.3.13.3"
+        }
+      ]
+    },
+    {
+      "id": "exterior",
+      "title": "Exterior / Wheels / Suspension",
+      "items": [
+        {
+          "id": "numbers",
+          "label": "Numbers",
+          "accepts": "Legible numbers on both sides with class designation, max. 3 numerals, no leading zeros; other drivers' numbers covered",
+          "rule": "NEHA 1.3.19.1, 1.3.19.3"
+        },
+        {
+          "id": "x_marking_if_required",
+          "label": "X if required",
+          "accepts": "\"X\" after the number on breakout vehicles",
+          "rule": "NEHA 1.3.19.2",
+          "variants": [
+            "standard"
+          ],
+          "allowNA": true
+        },
+        {
+          "id": "x_marking",
+          "label": "X",
+          "accepts": "\"X\" after the number",
+          "rule": "NEHA 1.3.19.2",
+          "variants": [
+            "x"
+          ]
+        },
+        {
+          "id": "r_marking",
+          "label": "R if required",
+          "accepts": "\"R\" after the number on Rally vehicles",
+          "rule": "NEHA 1.3.19.2",
+          "variants": [
+            "standard"
+          ],
+          "allowNA": true
+        },
+        {
+          "id": "windshield",
+          "label": "DOT windshield or lexan or helmet with visor",
+          "accepts": "DOT windshield or polycarbonate (Lexan) windshield, or full-face helmet with visor; no acrylic/Plexiglas",
+          "rule": "NEHA 1.3.4.1"
+        },
+        {
+          "id": "wheel_bearings_ball_joints",
+          "label": "Minimal play in wheel bearings and ball joints",
+          "accepts": "Ball joints, bushings and rod ends within manufacturer spec; wheel bearings minimal play and secure",
+          "rule": "NEHA 1.3.5.1, 1.3.5.2"
+        },
+        {
+          "id": "lug_nuts",
+          "label": "No missing or loose lug nuts",
+          "accepts": "No missing or loose lugs; no cracked, broken or badly bent wheels",
+          "rule": "NEHA 1.3.7.1, 1.3.7.2"
+        },
+        {
+          "id": "tires",
+          "label": "Tires in good condition",
+          "accepts": "Street tires: visible tread full width, no cord separation, DOT number, good condition",
+          "rule": "NEHA 1.3.7.3"
+        }
+      ]
+    }
+  ],
+  "signoff": [
+    {
+      "id": "scrutineer",
+      "label": "Tech Inspector",
+      "license": false
+    }
+  ]
+}

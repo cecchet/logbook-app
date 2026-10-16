@@ -1,0 +1,195 @@
+{
+  "format": 1,
+  "id": "ara-2021-06",
+  "bodyId": "ara",
+  "passtechRulesetIds": ["ara-performance-rally"],
+  "title": "ARA Tech Form",
+  "revision": "2021-06",
+  "source": {
+    "form": "ARA Tech Form 2021-06 (revised 5/21/2021)",
+    "rules": "ARA Rally Technical Rules, 2026 Edition (through Bulletin 2026-8)"
+  },
+  "header": [
+    { "id": "car_number", "label": "Car number", "type": "text", "prefill": "car_number", "required": true },
+    { "id": "event", "label": "Event", "type": "text", "prefill": "event", "required": true },
+    { "id": "driver", "label": "Driver", "type": "text", "prefill": "driver", "required": true },
+    { "id": "codriver", "label": "Co-Driver", "type": "text", "prefill": "codriver", "required": true },
+    { "id": "make", "label": "Vehicle Make", "type": "text", "prefill": "make" },
+    { "id": "vin", "label": "VIN#", "type": "text", "prefill": "vin" },
+    { "id": "class", "label": "Class", "type": "text", "prefill": "class", "required": true },
+    { "id": "min_weight", "label": "Minimum Weight", "type": "number", "unit": "kg" },
+    { "id": "displacement", "label": "Displacement", "type": "number", "unit": "cc" },
+    { "id": "restrictor_max_boost", "label": "Restrictor Size/Max Boost", "type": "text" },
+    { "id": "popoff_valve_sn", "label": "FIA PopOff Valve SN#", "type": "text" }
+  ],
+  "sections": [
+    {
+      "id": "personal",
+      "title": "Personal Protection",
+      "items": [
+        {
+          "id": "helmet",
+          "label": "Helmet",
+          "perOccupant": true,
+          "gear": "helmet",
+          "accepts": "Snell SA2015 (valid through 12/31/2026), EA2016, SA2020 or SA2025; FIA 8860-2010, 8860-2018, 8859-2015 or 8859-2024; not modified from manufacture",
+          "rule": "ARA RTR 1.1.1"
+        },
+        {
+          "id": "suit",
+          "label": "Suit",
+          "perOccupant": true,
+          "gear": "firesuit",
+          "accepts": "FIA 8856-2000, 8856-2018 or FIA 1986; SFI 3.2A/5 or 3.4/5; SFI 3.2A/1 only with FIA 8856-2000 or SFI 3.3 underwear; no withdrawn homologations",
+          "rule": "ARA RTR 1.3.1"
+        },
+        {
+          "id": "hnr",
+          "label": "HNR",
+          "perOccupant": true,
+          "gear": "hnr",
+          "accepts": "FIA 8858-2002 or 8858-2010, or SFI 38.1 with conformance label less than 5 years old",
+          "rule": "ARA RTR 1.2.1"
+        }
+      ]
+    },
+    {
+      "id": "logbook",
+      "title": "Logbook",
+      "items": [
+        {
+          "id": "logbook_deficiency_repaired",
+          "label": "Deficiency Repaired?",
+          "accepts": "Deviations or damage noted in the log book at previous events have been repaired",
+          "rule": "ARA RTR 5.2.2, 5.2.4",
+          "allowNA": true
+        }
+      ]
+    },
+    {
+      "id": "front_end",
+      "title": "Vehicle Front End",
+      "items": [
+        { "id": "parking_lights", "label": "Parking Lights", "accepts": "All legally required exterior lights present and working", "rule": "ARA RTR 2.2.1" },
+        { "id": "headlights", "label": "Headlights, Low/High Beam", "accepts": "Low and high beams work and meet state of registration requirements; auxiliary lights no higher than top of hood", "rule": "ARA RTR 3.3.1, 3.3.2" },
+        { "id": "turn_signals_front", "label": "Turn Signals", "accepts": "All legally required exterior lights present and working", "rule": "ARA RTR 2.2.1" },
+        { "id": "tow_loop_front", "label": "Tow Loop", "gear": "tow_hook", "accepts": "Towing eye at front, painted yellow, red or orange; fluorescent arrow if under the car", "rule": "ARA RTR 2.2.9" },
+        { "id": "horn", "label": "Horn", "accepts": "Adequate and functioning", "rule": "ARA RTR 2.2.1" },
+        { "id": "windshield_wipers", "label": "Windshield Wipers", "accepts": "Adequate and functioning", "rule": "ARA RTR 2.2.1" }
+      ]
+    },
+    {
+      "id": "rear_end",
+      "title": "Vehicle Rear End",
+      "items": [
+        { "id": "taillights", "label": "Taillights", "accepts": "All legally required exterior lights present and working", "rule": "ARA RTR 2.2.1" },
+        { "id": "stoplights", "label": "Stoplights", "accepts": "All legally required exterior lights present and working", "rule": "ARA RTR 2.2.1" },
+        { "id": "turn_signals_rear", "label": "Turn Signals", "accepts": "All legally required exterior lights present and working", "rule": "ARA RTR 2.2.1" },
+        { "id": "reverse_lights", "label": "Reverse Lights", "accepts": "Working; switch on only when reverse gear is engaged", "rule": "ARA RTR 3.3.4" },
+        { "id": "license_plate_lights", "label": "License Plate Lights", "accepts": "All legally required exterior lights present and working", "rule": "ARA RTR 2.2.1" },
+        { "id": "tow_loop_rear", "label": "Tow Loop", "gear": "tow_hook", "accepts": "Towing eye at rear, painted yellow, red or orange; fluorescent arrow if under the car", "rule": "ARA RTR 2.2.9" }
+      ]
+    },
+    {
+      "id": "event_use",
+      "title": "Event Use (Per supps)",
+      "items": [
+        {
+          "id": "event_use_1",
+          "label": "Event use item 1",
+          "accepts": "As required by the event supplementary regulations",
+          "allowNA": true,
+          "fields": [{ "id": "item", "label": "Item", "type": "text" }]
+        },
+        {
+          "id": "event_use_2",
+          "label": "Event use item 2",
+          "accepts": "As required by the event supplementary regulations",
+          "allowNA": true,
+          "fields": [{ "id": "item", "label": "Item", "type": "text" }]
+        }
+      ]
+    },
+    {
+      "id": "interior",
+      "title": "Interior/Trunk",
+      "items": [
+        {
+          "id": "roll_cage",
+          "label": "Roll Cage Legality",
+          "gear": "rollover_protection",
+          "accepts": "Fully welded cage to FIA Appendix J Art. 253 (or FIA-homologated with papers) entered in a recognized log book; pre-2009 log books with 2006 RA-spec cage plus required retrofits; no bolt-together members",
+          "rule": "ARA RTR 2.2.2"
+        },
+        { "id": "cage_padding", "label": "FIA or SFI Roll Cage Padding", "accepts": "FIA 8857-2001 Type A or SFI 45.1 on all roofline tubing forward of and including the main hoop and any tube the helmet can reach", "rule": "ARA RTR 2.2.3" },
+        { "id": "floor_firewall_sealed", "label": "Floor Pan & Firewall Sealed", "accepts": "No holes in floor pan or firewall; fuel-resistant, fire-retardant shield between cockpit and fuel tank/filler/pump area", "rule": "ARA RTR 2.2.8.b" },
+        { "id": "door_panels", "label": "Door Panel & Edge Trim", "accepts": "Inside front door panels or edge trim protect from metal edges", "rule": "ARA RTR 2.2.11" },
+        {
+          "id": "restraints",
+          "label": "Restraints: SFI 2 – FIA 5 Yrs",
+          "gear": "belts_harness",
+          "accepts": "Unmodified 5-, 6- or 7-point harness for both crew, FIA 8853/98 or 8853/2016 or SFI 16.1/16.5, single-latch release, not past label expiration (SFI 2 yrs, FIA 5 yrs; dual FIA/SFI: later date); no mixed parts",
+          "rule": "ARA RTR 2.3.3",
+          "fields": [
+            { "id": "driver_expires", "label": "Driver harness expiration", "type": "date" },
+            { "id": "codriver_expires", "label": "Co-driver harness expiration", "type": "date" }
+          ]
+        },
+        { "id": "seats_secure", "label": "Seats Secure", "gear": "seat", "accepts": "FIA 8855-1999 or 8862-2009 (or racing seat accepted by Chief Scrutineer); no hinged-back or OEM seats; securely mounted, no sliders", "rule": "ARA RTR 2.3.1, 2.3.2" },
+        { "id": "rear_view_mirror", "label": "Rear View Mirror", "accepts": "Present, secure and usable" },
+        { "id": "battery_interior", "label": "Battery Secure / + Covered", "accepts": "Securely mounted to primary structure; hot terminal insulated; relocated wet-cell batteries in covered non-conductive box; lithium batteries with BMS", "rule": "ARA RTR 2.2.4" },
+        { "id": "fuel_tank", "label": "Fuel Tank or Cell", "gear": "fuel_cell", "accepts": "OEM tank in OEM location with OEM mounts, or FIA/SFI fuel cell vented outside (spill outlet if in luggage compartment); exposed underside shielded; no supplementary tanks", "rule": "ARA RTR 2.2.8" },
+        { "id": "fuel_pump_shutoff", "label": "Fuel Pump Auto Shut Off", "accepts": "Fuel pumps run only with engine running, except while starting", "rule": "ARA RTR 2.2.8.h" },
+        { "id": "fuel_cell_bulkhead", "label": "Fuel Cell Bulkhead", "accepts": "Fuel-resistant, fire-retardant shield between cockpit and tank/filler/pump; fuel pumps isolated by fireproof metal bulkhead", "rule": "ARA RTR 2.2.8.b, 2.2.8.g" },
+        {
+          "id": "fire_extinguishers",
+          "label": "Fire Ex. 2 x 10 B:C or 1 x 20 B:C",
+          "gear": "fire_extinguisher",
+          "accepts": "2 x 10 B:C or 1 x 20 B:C hand-held (or listed clean-agent equivalents); metal strap, visible gauge, serviced annually or per FIA/SFI, DOT/USCG/SFI/FIA approved; one within reach of a seated crew member; exterior location label",
+          "rule": "ARA RTR 2.3.5.a.ii, 2.3.5.b, 2.3.5.c",
+          "fields": [
+            { "id": "bc_rating", "label": "BC rating(s)", "type": "text" },
+            { "id": "service_date", "label": "Service tag date", "type": "date" }
+          ]
+        },
+        { "id": "onboard_extinguisher", "label": "On Board Ext. SFI or FIA", "gear": "fire_suppression", "accepts": "SFI 17.1, FIA 8865-2015 or FIA Technical List 16 (Rally) system; nozzles to engine bay and cockpit; metal strap, visible gauge; activation within reach of both crew; 2 circle-E decals", "rule": "ARA RTR 2.3.5.a.i" },
+        { "id": "triangles", "label": "Labeled Triangles x2+1 in Reach", "gear": "emergency_triangle", "accepts": "3 self-supporting reflective triangles, min. 12 in per side, marked with car number; one within reach of a seated crew member", "rule": "ARA RTR 2.3.7" },
+        { "id": "first_aid_kit", "label": "First Aid Kit", "gear": "first_aid_kit", "accepts": "Comprehensive kit in the cockpit, easily accessible and removable by hand, clearly identified; exterior first-aid label", "rule": "ARA RTR 2.3.6" },
+        { "id": "tow_rope", "label": "Tow Rope", "gear": "tow_rope", "accepts": "Tow rope (or winch with cable) carried entirely inside the car", "rule": "ARA RTR 2.3.8" },
+        { "id": "safety_spares_secure", "label": "Safety & Spares Secure", "accepts": "All articles that could be dangerous if loose are securely restrained", "rule": "ARA RTR 2.2.10" },
+        { "id": "spill_kit", "label": "Spill Kit", "gear": "spill_kit", "accepts": "At least 2 x 15\" x 19\" absorbent pads, 1 x 3\" x 48\" hydrocarbon sock and a 13 gal bag, in a resealable heavy-duty bag", "rule": "ARA RTR 2.3.11" },
+        { "id": "tracker", "label": "Tracker Power / Mount Secure", "accepts": "Tracking unit powered and securely mounted per event instructions" }
+      ]
+    },
+    {
+      "id": "engine_bay",
+      "title": "Engine Bay",
+      "items": [
+        {
+          "id": "restrictor",
+          "label": "Restrictor",
+          "accepts": "Forced induction inlet no larger than Table A for the class (e.g. Open/Limited 4WD 33 mm @ 2.5 bar abs), min. 3 mm wide, within 50 mm of compressor wheel, sealable with ARA wire seal; novice restrictor max 30 mm where required",
+          "rule": "ARA RTR 4.2.4, 3.7.2",
+          "allowNA": true,
+          "fields": [
+            { "id": "size", "label": "Restrictor size", "type": "number", "unit": "mm" },
+            { "id": "seal_number", "label": "ARA seal number", "type": "text" }
+          ]
+        },
+        { "id": "battery_engine_bay", "label": "Battery Secure/ + covered", "accepts": "Securely mounted to primary structure; hot terminal insulated", "rule": "ARA RTR 2.2.4" },
+        { "id": "boost_monitor", "label": "Boost Monitor Operable", "accepts": "1/8\" female fitting in intake plenum for ARA boost monitor; FIA pop-off valve sealed where used", "rule": "ARA RTR 4.2.4.b, 4.7.4", "allowNA": true }
+      ]
+    },
+    {
+      "id": "suspension",
+      "title": "Suspension & Mech.",
+      "items": [
+        { "id": "tires_wheels", "label": "Tires and Wheels (incl. Spare)", "accepts": "Tires, including all spares, adequate and in good condition", "rule": "ARA RTR 2.2.1" },
+        { "id": "brakes", "label": "Brakes (incl. Parking)", "accepts": "Brakes adequate and functioning; parking brake holds the empty car with 50 kg pull at a tow point", "rule": "ARA RTR 2.2.1, 2.2.19" }
+      ]
+    }
+  ],
+  "signoff": [
+    { "id": "scrutineer", "label": "Scrutineer", "license": true }
+  ]
+}

@@ -12,6 +12,9 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const migrationsDir = path.join(root, "supabase", "migrations");
 
 const db = new PGlite({ extensions: { pgcrypto } });
+// UTC, like Supabase -- and like the test dates (day(), from toISOString):
+// in local time the two disagree around midnight.
+await db.exec("set timezone to 'UTC'");
 
 // What a Supabase project already has before our migrations run.
 await db.exec(`
@@ -244,7 +247,25 @@ await check("the technical director creates an event and its staff", async () =>
 await refused("a scrutineer can't create events", () => rpc(S2, "save_event", [{ body: "ara", name: "X", scrutineeringStartsOn: day(0), startsOn: day(0), endsOn: day(0) }]), /not allowed/);
 await check("the chief scrutineer enters the competitors", async () => {
   car12 = await rpc(CHIEF, "save_entry", [event, { carNumber: "12", driver: "Pat Owner", logbookId: issued.id }]);
-  car7 = await rpc(CHIEF, "save_entry", [event, { carNumber: "7", driver: "New Driver", vehicle: { make: "Ford", model: "Fiesta", year: "2012" } }]);
+  car7 = await rpc(CHIEF, "save_entry", [event, { carNumber: "7", driver: "New Driver", email: " New.Driver@Team.test ", vehicle: { make: "Ford", model: "Fiesta", year: "2012" } }]);
+});
+await check("an entry keeps its email (lower-cased) when saved again without one", async () => {
+  await rpc(CHIEF, "save_entry", [event, { carNumber: "7", driver: "New Driver", class: "P2", vehicle: { make: "Ford", model: "Fiesta", year: "2012" } }]);
+  const [e] = (await db.query("select email, class from event_entries where id = $1", [car7])).rows;
+  assert(e.email === "new.driver@team.test" && e.class === "P2", "entry: " + JSON.stringify(e));
+});
+await check("PassTech looks a car up by number: the entry list's details, never the email", async () => {
+  const anon = await rpc(null, "event_entry_lookup", [event, " 7 "]);
+  assert(anon && anon.driver === "New Driver" && anon.make === "Ford" && anon.class === "P2" && !anon.email, "lookup: " + JSON.stringify(anon));
+  const none = await rpc(null, "event_entry_lookup", [event, "999"]);
+  assert(none === null, "no such car: " + JSON.stringify(none));
+});
+await check("the VIN only for the car's own competitor or logbook owner", async () => {
+  const stranger = await rpc(STRANGER, "event_entry_lookup", [event, "12"]);
+  const owner = await rpc(BUYER, "event_entry_lookup", [event, "12"]); // the car was sold to BUYER above
+  const seller = await rpc(OWNER, "event_entry_lookup", [event, "12"]);
+  assert(stranger.logbookNumber && !stranger.vin, "stranger: " + JSON.stringify(stranger));
+  assert(owner.vin === "JF1GD70625L512345" && !seller.vin, "owner: " + JSON.stringify(owner) + " seller: " + JSON.stringify(seller));
 });
 await refused("a scrutineer who isn't on the event can't add records", () => rpc(MULTI, "add_event_record", [car12, "inspection", { result: "pass" }, "passed"]), /not on this event's staff/);
 await check("an event scrutineer records the inspection: passed", async () => {
@@ -333,6 +354,98 @@ await check("a stored photo can't be changed or deleted", async () => {
   assert(n === 1, "the photo was changed or deleted");
 });
 
+console.log("Tech sheets");
+const COMPETITOR = "driver@team.test", RIVAL = "rival@team.test";
+const sheetDef = (title) => ({ format: 1, id: "ara-test", bodyId: "ara", title, header: [{ id: "car_number", label: "Car #" }],
+  sections: [{ id: "personal", title: "Personal Protection", items: [{ id: "helmet", label: "Helmet", perOccupant: true, gear: "helmet" }] }] });
+let araCopy, sheet12;
+await check("the built-in library is seeded: ARA, SCCNH, NEHA, CARS, NASA", async () => {
+  const keys = (await db.query("select key from tech_sheet_templates where body_id is null order by key")).rows.map((r) => r.key);
+  assert(keys.join() === "ara-2021-06,cars-2022,nasa-rallysport,neha,sccnh-gravel-trials", keys.join());
+});
+await check("Frog Racing adds a built-in template to the library", () => rpc(ADMIN, "save_tech_sheet_template", [{ key: "ara-test", title: "ARA Tech Form", definition: sheetDef("ARA Tech Form") }]));
+await refused("a technical director can't change the library", () => rpc(TD, "save_tech_sheet_template", [{ key: "ara-test", title: "X", definition: sheetDef("X") }]), /not allowed/);
+await check("an event uses the body's built-in sheet by default", async () => {
+  const [ev] = (await rpc(null, "tech_sheet_events")).filter((e) => e.id === event);
+  assert(ev && ev.template && ev.template.title === "ARA Tech Form" && ev.template.body === null, "template: " + JSON.stringify(ev && ev.template));
+});
+await check("the technical director saves the body's own copy, which the event then uses", async () => {
+  araCopy = await rpc(TD, "save_tech_sheet_template", [{ body: "ara", key: "ara-test", title: "ARA Tech Form (ours)", definition: sheetDef("ARA Tech Form (ours)") }]);
+  await rpc(TD, "save_tech_sheet_template", [{ id: araCopy, body: "ara", key: "ara-test", title: "ARA Tech Form (ours)", definition: sheetDef("ARA Tech Form (ours)") }]);
+  const [ev] = (await rpc(null, "tech_sheet_events")).filter((e) => e.id === event);
+  assert(ev.template.id === araCopy && ev.template.version === 2, "template: " + JSON.stringify(ev.template));
+});
+await refused("a technical director can't edit another body's sheet", () => rpc(TD, "save_tech_sheet_template", [{ body: "nasa", key: "x", title: "X", definition: sheetDef("X") }]), /not allowed/);
+await check("signed in, the staff read the active templates; signed out, only the Public ones (none yet)", async () => {
+  const staff = await as(S1, (q) => q("select key from tech_sheet_templates"));
+  const anon = await as(null, (q) => q("select key from tech_sheet_templates"));
+  assert(staff.length === 7 && anon.length === 0, "templates: " + staff.length + " / " + anon.length);
+});
+await check("a sheet made Public is listed in PassTech; the automatic ones never are", async () => {
+  const def = (await db.query("select definition from tech_sheet_templates where key = 'ara-2021-06' and body_id is null")).rows[0].definition;
+  await rpc(ADMIN, "save_tech_sheet_template", [{ body: "nasa", key: "nasa-public", title: "NASA Public Sheet", definition: def, public: true }]);
+  await rpc(ADMIN, "save_tech_sheet_template", [{ body: "nasa", key: "nasa-private", title: "NASA Private Sheet", definition: def }]);
+  const listed = (await rpc(null, "public_tech_sheets")).map((t) => t.key);
+  const anon = (await as(null, (q) => q("select key from tech_sheet_templates"))).map((r) => r.key);
+  assert(listed.join() === "nasa-public" && anon.join() === "nasa-public", JSON.stringify({ listed, anon }));
+});
+await check("saving a sheet again keeps it Public unless told otherwise", async () => {
+  const def = (await db.query("select definition from tech_sheet_templates where key = 'nasa-public'")).rows[0].definition;
+  await rpc(ADMIN, "save_tech_sheet_template", [{ body: "nasa", key: "nasa-public", title: "NASA Public Sheet", definition: def }]);
+  const kept = (await rpc(null, "public_tech_sheets")).length === 1;
+  await rpc(ADMIN, "save_tech_sheet_template", [{ body: "nasa", key: "nasa-public", title: "NASA Public Sheet", definition: def, public: false }]);
+  assert(kept && (await rpc(null, "public_tech_sheets")).length === 0, "visibility");
+});
+await refused("submitting needs signing in", () => rpc(null, "submit_tech_sheet", [{ event, carNumber: "12" }]), /permission denied|sign in/);
+await check("a competitor submits their car's sheet, and updates it", async () => {
+  sheet12 = await rpc(COMPETITOR, "submit_tech_sheet", [{ event, carNumber: "12", header: { driver: "Pat Owner" },
+    competitor: { items: { "helmet.driver": { declared: "Bell HP7, Snell SA2020", photos: [{ sha256: sha("1"), kind: "tag" }] } } } }]);
+  // (A resubmission sends the whole sheet again.)
+  const again = await rpc(COMPETITOR, "submit_tech_sheet", [{ event, carNumber: "12", header: { driver: "Pat Owner", codriver: "Sam" },
+    competitor: { items: { "helmet.driver": { declared: "Bell HP7, Snell SA2020", photos: [{ sha256: sha("1"), kind: "tag" }] } } } }]);
+  assert(again === sheet12, "a second sheet was created");
+  const [mine] = await rpc(COMPETITOR, "my_tech_sheets");
+  assert(mine.status === "submitted" && mine.header.codriver === "Sam" && mine.template.title === "ARA Tech Form (ours)", JSON.stringify(mine));
+});
+await refused("someone else can't take over that car's sheet", () => rpc(RIVAL, "submit_tech_sheet", [{ event, carNumber: "12" }]), /already has a tech sheet/);
+await check("the event's staff see the submitted sheets; a stranger doesn't", async () => {
+  const sheets = await rpc(S2, "event_tech_sheets", [event]);
+  assert(sheets.length === 1 && sheets[0].competitor.items["helmet.driver"].declared.startsWith("Bell"), JSON.stringify(sheets));
+});
+await refused("a stranger can't list the event's sheets", () => rpc(STRANGER, "event_tech_sheets", [event]), /not allowed/);
+await refused("a scrutineer can't sign as chief", () => rpc(S2, "save_tech_sheet", [event, { carNumber: "12", inspection: {}, finish: "pass", signAs: "chief" }]), /only the chief/);
+await check("the scrutineer passes the car: signed, tech status and logbook record", async () => {
+  const before = (await db.query("select count(*)::int as n from records where kind = 'inspection'")).rows[0].n;
+  const s = await rpc(S2, "save_tech_sheet", [event, { carNumber: "12", inspection: { items: { "helmet.driver": { result: "pass" } }, corrections: "" }, finish: "pass" }]);
+  assert(s.status === "passed" && s.inspection.signatures.scrutineer.name === "Sam Two" && s.record, JSON.stringify(s));
+  const after = (await db.query("select count(*)::int as n from records where kind = 'inspection'")).rows[0].n;
+  assert(after === before + 1, "no inspection record");
+  const [rec] = (await db.query("select body from records where id = $1", [s.record])).rows;
+  assert(rec.body.techSheet === sheet12 && rec.body.result === "pass", JSON.stringify(rec.body));
+});
+await refused("the competitor can't change a sheet once inspected", () => rpc(COMPETITOR, "submit_tech_sheet", [{ event, carNumber: "12" }]), /already being inspected/);
+await check("the competitor sees the result", async () => {
+  const [mine] = await rpc(COMPETITOR, "my_tech_sheets");
+  assert(mine.status === "passed" && mine.inspection.items["helmet.driver"].result === "pass", JSON.stringify(mine));
+});
+await check("a paper sheet goes digital: the chief fails car 7 and signs as chief", async () => {
+  const s = await rpc(CHIEF, "save_tech_sheet", [event, { carNumber: "7", header: { driver: "New Driver" },
+    inspection: { items: { "helmet.driver": { result: "fail", note: "Expired" } }, corrections: "New helmet" }, finish: "fail", signAs: "chief" }]);
+  assert(s.status === "failed" && s.inspection.signatures.chief && !s.record, JSON.stringify(s));
+  const [en] = (await db.query("select tech_status from event_entries where id = $1", [car7])).rows;
+  assert(en.tech_status === "failed", "tech status " + en.tech_status);
+});
+await refused("staff from another event can't fill this one's sheets", () => rpc(MULTI, "save_tech_sheet", [event, { carNumber: "12", inspection: {} }]), /not on this event's staff/);
+await check("the offline bundle carries the sheets and the template", async () => {
+  const b = await rpc(S2, "event_bundle", [event]);
+  assert(b.techSheets.length === 2 && b.techTemplate.id === araCopy, "bundle: " + b.techSheets.length);
+});
+await check("a competitor uploads gear photos; scrutineers see them, other people don't", async () => {
+  await as(COMPETITOR, (q) => q("insert into storage.objects (bucket_id, name) values ('tech-sheet-photos', $1)", [sha("1")]));
+  const see = (email) => as(email, (q) => q("select name from storage.objects where bucket_id = 'tech-sheet-photos'")).then((r) => r.length);
+  assert(await see(S2) === 1 && await see(RIVAL) === 0 && await see(null) === 0, "photo visibility");
+});
+
 console.log("Revoking");
 await check("the director disables the scrutineer", async () => {
   const [acc] = await as(TD, (q) => q("select id from accreditations where email = $1", [S1]));
@@ -348,6 +461,68 @@ await check("disabling a body stops its scrutineers", async () => {
   const roles = await rpc(MULTI, "my_roles");
   assert(roles.accreditations.length === 1 && roles.accreditations[0].body === "ara", "still accredited by a disabled body");
 });
+
+console.log("Tech sheets before scrutineering opens");
+let later;
+await check("staff fill a car's sheet before scrutineering opens", async () => {
+  later = await rpc(TD, "save_event", [{ body: "ara", name: "Later Rally", scrutineeringStartsOn: day(5), startsOn: day(6), endsOn: day(6) }]);
+  await rpc(TD, "set_event_staff", [later, CHIEF, "chief"]);
+  const sh = await rpc(CHIEF, "save_tech_sheet", [later, { carNumber: "5", inspection: { items: { "helmet.driver": { note: "checked at the shop" } } } }]);
+  assert(sh.status === "inspecting" && sh.inspection.items["helmet.driver"].note === "checked at the shop", JSON.stringify(sh));
+});
+await refused("but its result waits for scrutineering", () => rpc(CHIEF, "save_tech_sheet", [later, { carNumber: "5", finish: "pass", inspection: { items: {} } }]), /only be recorded during scrutineering/);
+
+console.log("Several tech sheets for an event (by class)");
+let tplA, tplB;
+await check("the organizer gives an event two sheets, the second for class X", async () => {
+  const rows = (await db.query("select id, key from tech_sheet_templates where body_id is null and key in ('ara-2021-06', 'sccnh-gravel-trials')")).rows;
+  tplA = rows.find((r) => r.key === "ara-2021-06").id; tplB = rows.find((r) => r.key === "sccnh-gravel-trials").id;
+  await rpc(TD, "set_event_tech_sheets", [later, [{ template: tplA, classes: [] }, { template: tplB, classes: ["X", " xs "] }]]);
+  const ev = (await rpc(null, "tech_sheet_events")).find((e) => e.id === later);
+  assert(ev.templates.length === 2 && ev.templates[1].classes.join() === "X,xs" && ev.template.id === tplA, JSON.stringify(ev.templates.map((t) => [t.key, t.classes])));
+});
+await check("a class X car gets the X sheet; another class the first", async () => {
+  await rpc(CHIEF, "save_entry", [later, { carNumber: "9", driver: "X Driver", class: "x" }]);
+  const x = await rpc(CHIEF, "save_tech_sheet", [later, { carNumber: "9", inspection: { items: {} } }]);
+  const other = await rpc(CHIEF, "save_tech_sheet", [later, { carNumber: "10", header: { class: "P" }, inspection: { items: {} } }]);
+  assert(x.templateId === tplB && other.templateId === tplA, JSON.stringify([x.templateId, other.templateId]));
+});
+await check("the scrutineer switches a car to the event's other sheet", async () => {
+  const sh = await rpc(CHIEF, "save_tech_sheet", [later, { carNumber: "10", template: tplB, inspection: { items: {} } }]);
+  assert(sh.templateId === tplB && sh.template.id === "sccnh-gravel-trials", sh.templateId);
+});
+await refused("but not to a sheet the event doesn't use", async () => {
+  const other = (await db.query("select id from tech_sheet_templates where key = 'neha'")).rows[0].id;
+  return rpc(CHIEF, "save_tech_sheet", [later, { carNumber: "10", template: other, inspection: { items: {} } }]);
+}, /isn't one of this event's/);
+await check("a team submits on the sheet it picked", async () => {
+  const id = await rpc(COMPETITOR, "submit_tech_sheet", [{ event: later, carNumber: "21", template: tplB, header: {}, competitor: { items: {} } }]);
+  const [s] = (await db.query("select template_id from tech_sheets where id = $1", [id])).rows;
+  assert(s.template_id === tplB, s.template_id);
+});
+
+console.log("Photo drop (a phone sends photos to a laptop)");
+const PHOTO = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
+let drop;
+await check("a laptop opens a session, signed out", async () => {
+  drop = await rpc(null, "photo_drop_open");
+  assert(/^[0-9a-f-]{36}$/.test(drop), "session: " + drop);
+});
+await check("the phone sends two photos; the laptop takes them, once", async () => {
+  await rpc(null, "photo_drop_put", [drop, PHOTO]);
+  const waiting = await rpc(null, "photo_drop_put", [drop, PHOTO.replace("==", "A=")]);
+  const first = await rpc(null, "photo_drop_take", [drop]);
+  const again = await rpc(null, "photo_drop_take", [drop]);
+  assert(waiting === 2 && first.open && first.photos.length === 2 && first.photos[0] === PHOTO && again.photos.length === 0, JSON.stringify({ waiting, first: first.photos.length, again }));
+});
+await refused("only photos", () => rpc(null, "photo_drop_put", [drop, "data:text/html;base64,PGgxPg=="]), /not a photo/);
+await refused("nobody reads the photo tables directly", () => as(null, (q) => q("select data from photo_drop_items")), /permission denied/);
+await check("closed: the phone's link stops working", async () => {
+  await rpc(null, "photo_drop_close", [drop]);
+  const r = await rpc(null, "photo_drop_take", [drop]);
+  assert(r.open === false, "still open");
+});
+await refused("a closed session takes no photos", () => rpc(null, "photo_drop_put", [drop, PHOTO]), /expired/);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

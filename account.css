@@ -59,7 +59,176 @@
 /* The public link's photos. */
 .account-photos { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
 .account-photos img { width: 140px; height: 100px; object-fit: cover; border-radius: 6px; display: block; }
+/* Tech sheets (techsheet.js): header fields, then each section's lines --
+   the item, what's accepted, the team's declaration -- with Pass / Fail / N/A. */
+.techsheet { margin-top: 8px; }
+.techsheet-instructions { font-style: italic; }
+.techsheet-variants { display: flex; gap: 12px; flex-wrap: wrap; margin: 6px 0; font-size: 0.9rem; }
+.techsheet-header { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px 12px; margin: 8px 0 12px; }
+.techsheet-field { display: flex; flex-direction: column; gap: 2px; font-size: 0.8rem; color: var(--muted); }
+.techsheet-field input, .techsheet-field select, .techsheet-field textarea { font: inherit; font-size: 0.9rem; color: var(--ink); }
+.account-panel .techsheet input[type="text"], .account-panel .techsheet-editor input[type="text"] { min-width: 0; width: 100%; box-sizing: border-box; }
+.techsheet-header input, .techsheet-header select { width: 100%; box-sizing: border-box; }
+.techsheet input[type="number"], .techsheet input[type="date"] { font: inherit; font-size: 0.9rem; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--ink); }
+.techsheet-section { border: 1px solid var(--border); border-radius: var(--radius); margin: 10px 0; overflow: hidden; }
+.techsheet-section-title { background: var(--info-bg); padding: 6px 10px; font-weight: 600; }
+.techsheet-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-top: 1px solid var(--border); }
+.techsheet-row.fail { background: var(--fail-bg, #fdecec); }
+.techsheet-row.pass { box-shadow: inset 3px 0 0 var(--pass); }
+.techsheet-row.na { opacity: 0.75; }
+.techsheet-item { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.techsheet-item .badge { margin-left: 6px; }
+.techsheet-declared { font-size: 0.85rem; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.techsheet-photos { display: inline-flex; gap: 4px; margin-left: 4px; }
+.techsheet-photo img { width: 44px; height: 44px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border); display: block; }
+.techsheet-photo.tag img { border-color: var(--accent); }
+.techsheet-values { display: flex; flex-wrap: wrap; gap: 6px 12px; }
+.techsheet-options { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 0.85rem; }
+.techsheet-note { font-size: 0.85rem; padding: 3px 6px; }
+.techsheet-results { display: flex; gap: 4px; flex: 0 0 auto; }
+.techsheet-result { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--panel); color: var(--ink); cursor: pointer; font: inherit; font-size: 0.85rem; }
+.techsheet-result.pass.on { background: var(--pass); border-color: var(--pass); color: #fff; }
+.techsheet-result.fail.on { background: var(--fail); border-color: var(--fail); color: #fff; }
+.techsheet-result.na.on { background: var(--muted); border-color: var(--muted); color: #fff; }
+.techsheet-corrections textarea { width: 100%; }
+.techsheet-editor-row { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 4px 8px; }
+.techsheet-editor-item { border-top: 1px solid var(--border); padding: 4px 0; }
+.techsheet-item-input, .techsheet-section-input { flex: 1 1 220px; font-weight: 600; }
+.techsheet-accepts-input { flex: 3 1 320px; }
+.techsheet-rule-input { flex: 1 1 120px; }
+@media (max-width: 640px) {
+  .techsheet-row { flex-direction: column; }
+}
 @media (max-width: 640px) {
   .account-table { display: block; overflow-x: auto; }
   .account-panel input[type="text"] { min-width: 0; width: 100%; }
 }
+/* Tabs: an open event (Competitor management / Admin), a body (Scrutineers / Tech sheets). */
+.account-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin: 12px 0 8px; }
+.account-tab { padding: 8px 14px; border: none; border-bottom: 2px solid transparent; margin-bottom: -1px; background: none; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.account-tab:hover { color: var(--ink); }
+.account-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+/* Event and body cards in a list: click to open. */
+.account-event-card { cursor: pointer; }
+.account-event-card:hover, .account-event-card:focus-visible { border-color: var(--accent); }
+.account-card-title .badge { margin-left: 6px; }
+/* The tech sheet editor: sections collapsed until opened; the one being edited stands out. */
+.techsheet-editor-section .techsheet-editor-head { cursor: pointer; }
+.techsheet-editor-section:not(.editing) .techsheet-editor-head:hover { background: var(--info-bg); }
+.techsheet-editor-section.editing { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--info-bg); }
+.techsheet-editor-section.editing > .techsheet-editor-head { background: var(--accent); color: #fff; }
+.techsheet-editor-section.editing > .techsheet-editor-head .btn { background: var(--panel); }
+.techsheet-editor-section.editing .techsheet-editor-item:nth-of-type(even) { background: var(--info-bg); }
+.techsheet-caret { border: none; background: none; font: inherit; font-size: 1rem; color: inherit; cursor: pointer; padding: 0 4px; }
+.techsheet-section-name { flex: 1; font-weight: 600; }
+.techsheet-applies { font-size: 0.85rem; color: var(--muted); }
+.techsheet-variants-editor { border: 1px dashed var(--border); border-radius: var(--radius); padding: 6px 4px; margin: 8px 0; }
+.techsheet-preview { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-top: 6px; }
+.techsheet-preview-title { font-weight: 700; font-size: 1.05rem; }
+/* The editor's gear picker: PassTech's categories as tiles (like its Equipment summary). */
+.techsheet-gear { border: 1px dashed var(--border); border-radius: var(--radius); padding: 6px 8px; margin: 8px 0; }
+.techsheet-gear-row { display: flex; gap: 10px; align-items: flex-start; margin: 8px 0; }
+.techsheet-gear-row-label { flex: 0 0 96px; font-weight: 700; font-size: 0.85rem; padding-top: 22px; }
+.techsheet-gear-row-label.required { color: var(--fail); }
+.techsheet-gear-row-label.conditional { color: var(--warn); }
+.techsheet-gear-tiles { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
+.techsheet-gear-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; width: 74px; padding: 4px; border: 2px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--ink); font: inherit; font-size: 0.68rem; line-height: 1.15; cursor: pointer; opacity: 0.55; }
+.techsheet-gear-tile img { width: 60px; height: 60px; object-fit: cover; border-radius: 6px; background: #fff; }
+.techsheet-gear-tile:hover { opacity: 1; border-color: var(--accent); }
+.techsheet-gear-tile.in { opacity: 1; border-color: var(--pass); }
+.techsheet-gear-tile.active { border-color: var(--accent); box-shadow: 0 0 0 3px var(--info-bg); }
+.techsheet-gear-check { position: absolute; top: 2px; right: 4px; background: var(--pass); color: #fff; border-radius: 50%; width: 16px; height: 16px; font-size: 0.65rem; line-height: 16px; text-align: center; }
+.techsheet-gear-panel { border: 2px solid var(--accent); border-radius: var(--radius); padding: 8px 10px; margin-top: 8px; }
+.techsheet-gear-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.techsheet-standards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 12px; font-size: 0.85rem; }
+.techsheet-standard { padding: 2px 4px; border-radius: 4px; }
+.techsheet-standard.on { background: var(--pass-bg); }
+.techsheet-standard .badge { margin-left: 4px; font-size: 0.65rem; }
+@media (max-width: 640px) {
+  .techsheet-gear-row { flex-direction: column; gap: 2px; }
+  .techsheet-gear-row-label { flex: none; padding-top: 0; }
+}
+.techsheet-gear .techsheet-field { flex: 1 1 260px; min-width: 0; }
+.techsheet-gear select { width: 100%; max-width: 100%; box-sizing: border-box; }
+/* A gear line: its fixed PassTech category, and its accepted standards inside it. */
+.techsheet-gear-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px 2px 2px; border: 1px solid var(--border); border-radius: 999px; font-size: 0.8rem; color: var(--muted); }
+.techsheet-gear-chip img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; background: #fff; }
+.techsheet-standards-box { margin: 4px 8px 6px; padding: 6px 8px; border-left: 3px solid var(--accent); background: var(--panel); border-radius: 0 6px 6px 0; }
+.techsheet-editor-item.active { box-shadow: inset 4px 0 0 var(--pass); }
+.techsheet-options-label { display: block; width: 100%; }
+/* MotorsportReg import: the list before it's saved. */
+.msr-table { font-size: 0.8rem; }
+.msr-table td { vertical-align: middle; }
+.account-panel .msr-table input.msr-number { width: 4.5em; min-width: 0; padding: 3px 5px; }
+.msr-table tr.msr-problem td { background: var(--fail-bg, #fdecec); }
+.msr-table tr.msr-skipped td { opacity: 0.45; }
+.techsheet-nocert { display: block; margin: 2px 0 4px; font-size: 0.85rem; }
+/* The team's photos of the car and crew, at the top of the sheet. */
+.techsheet-pictures { display: flex; flex-wrap: wrap; gap: 12px; margin: 8px 0; }
+.techsheet-pictures figure { margin: 0; }
+.techsheet-pictures-row { display: flex; gap: 6px; }
+.techsheet-pictures .techsheet-photo img { width: 120px; height: 90px; }
+.techsheet-pictures figcaption { font-size: 0.75rem; color: var(--muted); margin-top: 2px; }
+.techsheet-start { font: inherit; padding: 6px 10px; border-radius: 6px; border: 1px solid var(--accent); color: var(--accent); background: var(--panel); cursor: pointer; }
+/* The sheet, PassTech-style: a summary, folding sections, and lines that fold once judged. */
+.techsheet-row { flex-direction: column; gap: 6px; }
+.techsheet-row.folded { padding-top: 6px; padding-bottom: 6px; }
+.techsheet-line-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer; }
+.techsheet-line-head .techsheet-caret { color: var(--muted); width: 1em; }
+.techsheet-line-spacer { flex: 1; }
+.techsheet-line-note { max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.techsheet-section-title { display: flex; justify-content: space-between; align-items: center; width: 100%; border: none; font: inherit; font-weight: 600; color: var(--ink); text-align: left; cursor: pointer; }
+.techsheet-section.closed .techsheet-section-title { border-bottom: none; }
+.techsheet-summary { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; margin: 10px 0; }
+.techsheet-summary-counts { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.techsheet-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--border); }
+.techsheet-chip.pass { background: var(--pass-bg); color: var(--pass); border-color: var(--pass); }
+.techsheet-chip.fail { background: var(--fail-bg); color: var(--fail); border-color: var(--fail); }
+.techsheet-chip.warn { background: var(--warn-bg); color: var(--warn); border-color: var(--warn); }
+.techsheet-chip.na, .techsheet-chip.todo { color: var(--muted); }
+.techsheet-summary-list { list-style: none; margin: 0; padding: 0; }
+.techsheet-summary-list button { display: block; width: 100%; text-align: left; border: none; background: none; color: var(--ink); font: inherit; font-size: 0.88rem; padding: 3px 4px; border-radius: 6px; cursor: pointer; }
+.techsheet-summary-list button:hover { background: var(--info-bg); }
+.techsheet-summary-why { display: block; margin-left: 4px; }
+.techsheet-verdict { font-size: 0.75rem; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); }
+.techsheet-verdict.ok { color: var(--pass); border-color: var(--pass); }
+.techsheet-verdict.bad { color: var(--fail); border-color: var(--fail); }
+.techsheet-verdict.info { color: var(--warn); border-color: var(--warn); }
+.techsheet-verdict-box { margin-top: 6px; padding: 6px 8px; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border); }
+.techsheet-verdict-box.ok { background: var(--pass-bg); border-color: var(--pass); }
+.techsheet-verdict-box.bad { background: var(--fail-bg); border-color: var(--fail); }
+.techsheet-verdict-box.info { background: var(--warn-bg); border-color: var(--warn); }
+.techsheet-gear-form { border-left: 3px solid var(--accent); padding: 4px 0 4px 10px; margin: 4px 0; }
+.techsheet-gear-form-title { font-size: 0.8rem; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.techsheet-gear-form .techsheet-values { align-items: flex-end; }
+.techsheet-gear-form .techsheet-field.wide { flex: 1 1 220px; }
+.techsheet-gear-form select, .techsheet-gear-form input[type="date"], .techsheet-gear-form input[type="number"], .techsheet-gear-form input[type="text"] { font: inherit; font-size: 0.9rem; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); color: var(--ink); }
+.techsheet-gear-form input[type="number"] { width: 7em; }
+.techsheet-gear-unit { border: 1px dashed var(--border); border-radius: 8px; padding: 6px 8px; margin: 6px 0; }
+.techsheet-gear-unit-title { display: flex; justify-content: space-between; align-items: center; font-weight: 600; font-size: 0.85rem; }
+.techsheet-gear-cert { margin-top: 4px; }
+.techsheet-own-photos { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0 0; }
+.techsheet-own-photo { position: relative; }
+.techsheet-photo-x { position: absolute; top: -6px; right: -6px; width: 18px; height: 18px; border-radius: 50%; border: none; background: var(--fail); color: #fff; font-size: 12px; line-height: 18px; padding: 0; cursor: pointer; }
+.techsheet-add-photo { position: relative; cursor: pointer; }
+.techsheet-file { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+@media (max-width: 640px) {
+  .techsheet-row { flex-direction: column; }
+  .techsheet-line-spacer { display: none; }
+}
+/* The editor's comparison with the body's built-in sheet: its lines this sheet lacks. */
+.techsheet-compare { border: 1px dashed var(--border); border-radius: var(--radius); padding: 6px 8px; margin: 8px 0; }
+.techsheet-compare-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; border: none; background: none; color: var(--ink); font: inherit; font-weight: 600; text-align: left; cursor: pointer; padding: 2px 0; }
+.techsheet-compare-section { margin: 8px 0; }
+.techsheet-compare-title { display: flex; justify-content: space-between; align-items: center; font-weight: 600; background: var(--info-bg); padding: 4px 8px; border-radius: 6px; }
+.techsheet-compare-item { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+.techsheet-compare-text { flex: 1; min-width: 0; }
+.techsheet-compare-text .badge { margin-left: 6px; }
+/* Rule # suggestions in the editor. */
+.techsheet-rule-suggest { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--muted); }
+.techsheet-rule-fill { background: var(--warn-bg); border-radius: 6px; }
+/* An event's tech sheets: one row per sheet and its classes. */
+.event-sheet-row { align-items: flex-end; }
+/* A tech sheet's visibility: Private (its events only) or Public (PassTech's generic sheet). */
+.techsheet-visibility { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; margin: 6px 0 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9rem; }
+.techsheet-visibility label { cursor: pointer; }
