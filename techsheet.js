@@ -123,7 +123,8 @@
   function gearSummary(E, cat, e) {
     if (!e) return "";
     const certs = (e.certifications || []).map((c) => [c.standardId === E.NOT_LISTED ? c.customStandardLabel || "not listed" : c.standardId ? E.standardLabel(c.standardId) : "",
-      c.labelDate ? "label " + c.labelDate : "", c.tagExpirationDate ? "expires " + c.tagExpirationDate : "", c.nextServiceDate ? "service due " + c.nextServiceDate : ""].filter(Boolean).join(", "));
+      c.labelDate ? "label " + c.labelDate : "", c.tagExpirationDate ? "expires " + c.tagExpirationDate : "", c.nextServiceDate ? "service due " + c.nextServiceDate : "",
+      c.homologationNumber ? "homologation " + c.homologationNumber : "", c.serialNumber ? "serial " + c.serialNumber : ""].filter(Boolean).join(", "));
     const units = (e.extinguisherUnits || []).map((u, i) => "#" + (i + 1) + ": " + [u.classARating ? u.classARating + "-A" : "", u.bcRating ? u.bcRating + "-B:C" : "", u.weightLbs ? u.weightLbs + " lb" : "",
       u.manufactureDate ? "made " + u.manufactureDate : "", u.certificationDueDate ? "due " + u.certificationDueDate : "", u.hasMetalBracket ? "metal bracket" : "", u.hasAntiTorpedoTabs ? "anti-torpedo" : ""].filter(Boolean).join(" "));
     const meta = E.CATEGORY_META[cat] || {};
@@ -197,6 +198,7 @@
       c.standardId === E.NOT_LISTED ? field("Which", h("input", { type: "text", disabled: !ed, value: c.customStandardLabel || "", onchange: (e) => { c.customStandardLabel = e.target.value; changed(true); } })) : null,
       cat === "fire_suppression" ? field("Next service due", date(c, "nextServiceDate")) : field("Label / manufacture date", date(c, "labelDate")),
       cat === "fire_suppression" ? null : field("Expiration on the tag", date(c, "tagExpirationDate")),
+      field("Serial number", h("input", { type: "text", disabled: !ed, value: c.serialNumber || "", placeholder: "e.g. 000345", onchange: (e) => { c.serialNumber = e.target.value.trim() || undefined; changed(true); } })),
       entry.certifications.length > 1 ? small("Remove", () => { entry.certifications.splice(i, 1); changed(true); }) : null,
     ]));
     return [h("div", { class: "techsheet-values" }, out), certRows];
