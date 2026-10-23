@@ -785,9 +785,21 @@
     const rest = sheets.filter((t) => !(t.classes || []).length);
     return !listing.length && rest.length === 1 ? rest[0] : null;
   }
+  // While a scrutineer has a car's sheet open, the team can't re-submit it (the lock lasts 15
+  // minutes, renewed every 5 while it stays open; closing or a verdict releases it).
+  function lockSheet(t, lock) {
+    if (!t || !t.sheetId || t.status === "passed" || t.status === "failed") return;
+    rpc("lock_tech_sheet", { p_sheet: t.sheetId, p_lock: lock }).catch(() => {});
+  }
+  setInterval(() => { if (ui.techSheet) lockSheet(ui.techSheet, true); }, 5 * 60 * 1000);
+  function closeTechSheet() {
+    lockSheet(ui.techSheet, false);
+    ui.techSheet = null;
+  }
   // templateId: open (or move the car to) that one of the event's sheets.
   function openTechSheet(x, templateId) {
     const b = ui.event;
+    if (ui.techSheet && ui.techSheet.entry.id !== x.entry.id) lockSheet(ui.techSheet, false);
     const sheets = eventSheets(b);
     const existing = (b.techSheets || []).find((s) => s.carNumber === x.entry.car_number);
     ui.techSheetPick = null;
@@ -817,8 +829,12 @@
       view: {}, // what's folded (techsheet.js)
       sheetId: existing ? existing.id : null,
       stickers: null, // list_stickers() for this sheet
+      // The team's submission this sheet was opened on: a save after they re-submit is refused.
+      seenSubmittedAt: (existing && existing.competitor && existing.competitor.submittedAt) || "",
+      competitorImported: false,
     };
     if (existing) loadSheetStickers();
+    lockSheet(ui.techSheet, true);
     render();
     setTimeout(() => { const el = document.getElementById("techsheet-panel"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 0);
   }
@@ -833,10 +849,14 @@
     }
     try {
       const s = await rpc("save_tech_sheet", { p_event: ui.event.event.id, p: {
-        carNumber: t.entry.car_number, template: t.templateId || undefined, header: t.header, variant: t.variant, competitor: t.competitor || undefined,
+        carNumber: t.entry.car_number, template: t.templateId || undefined, header: t.header, variant: t.variant,
+        // The team's part only when imported here (a file); otherwise it stays as they submitted it.
+        competitor: t.competitorImported ? t.competitor : undefined, seenSubmittedAt: t.seenSubmittedAt,
         inspection: { items: t.inspection.items, corrections: t.inspection.corrections || "" },
         finish: finish || undefined, signAs: finish && t.signAsChief ? "chief" : undefined,
       } });
+      t.competitorImported = false;
+      t.seenSubmittedAt = (s.competitor && s.competitor.submittedAt) || "";
       say("pass", finish ? "Car " + t.entry.car_number + " " + (finish === "pass" ? "passed" : "failed") + (s.record ? " -- recorded in its logbook." : ".") +
         (finish === "pass" ? " Its stickers can be issued below." : "") : "Tech sheet saved.");
       // Passed: the sheet stays open for its stickers.
@@ -874,6 +894,7 @@
         }
         ui.busy = null;
         t.competitor = Object.assign({}, data.competitor, { importedAt: new Date().toISOString(), file: file.name });
+        t.competitorImported = true;
         Object.entries(data.header || {}).forEach(([k, v]) => { if (v && !t.header[k]) t.header[k] = v; });
         if (data.variant && !t.variant) t.variant = data.variant;
         say("pass", "The team's sheet is in -- " + Object.keys(data.competitor.items || {}).length + " lines declared. Save to keep it.");
@@ -907,6 +928,10 @@
         t.status === "passed" || t.status === "failed" ? h("span", { class: "badge " + (t.status === "passed" ? "pass" : "req") }, [t.status]) : null]),
       desc([c.pass + " pass", c.fail + " fail", c.na ? c.na + " N/A" : null, c.todo + " to check",
         declaredBy ? "team's sheet from " + declaredBy : "no team sheet (filled here from paper)"].filter(Boolean).join(" · ")),
+      // Earlier rounds: failed, then the team re-submitted what failed.
+      (t.inspection.history || []).map((x) => h("p", { class: "verdict warn" }, ["Failed " + fmtDate(x.at) +
+        (x.signatures && x.signatures.scrutineer ? " (" + x.signatures.scrutineer.name + ")" : "") + (x.corrections ? " -- corrections: " + x.corrections : "") +
+        ". The team re-submitted " + fmtDate(x.resubmittedAt) + ": the lines they changed are marked \"updated by the team\" and need checking again."])),
       !myRole ? desc("Only the event's staff fill its sheets.") : over ? desc("This event is over: the sheet is read-only.") : finished ? desc("This sheet is signed: it's read-only.")
         : !open ? h("p", { class: c.todo === 0 && c.total ? "library-notice" : "element-desc" }, [(c.todo === 0 && c.total ? "Every line has a result. " : "") +
           "Scrutineering opens " + fmtDate(ev.scrutineering_starts_on) + ": " + (c.todo === 0 && c.total ? "save the sheet now, and finish it as Passed or Failed from then." : "fill the sheet in and save it now -- Passed / Failed can be recorded from then.")]) : null,
@@ -921,7 +946,7 @@
         editable && open ? btn("Finish: Passed", () => saveTechSheet("pass"), "small") : null,
         editable && open ? btn("Finish: Failed", () => saveTechSheet("fail"), "small secondary") : null,
         editable ? btn("Import the team's sheet (file)", importTeamSheet, "small secondary") : null,
-        btn("Close", () => { ui.techSheet = null; render(); }, "small secondary"),
+        btn("Close", () => { closeTechSheet(); render(); }, "small secondary"),
       ),
       renderSheetStickers(t, !!myRole),
     ]);
@@ -1025,7 +1050,7 @@
       past.map(card),
     ];
   }
-  function openFromList(id) { ui.eventTab = "competitors"; ui.show = {}; ui.techSheet = null; openEvent(id); }
+  function openFromList(id) { ui.eventTab = "competitors"; ui.show = {}; closeTechSheet(); openEvent(id); }
   // Create an event, or (eventForm.id) edit the open one -- its body stays.
   function renderCreateEvent() {
     const editing = !!eventForm.id;
@@ -1258,6 +1283,8 @@
         h("strong", {}, [[x.entry.driver, x.entry.codriver].filter(Boolean).join(" / ") || "—"]),
         h("span", { class: "element-desc" }, [" " + carDesc(x) + (x.entry.class ? " · " + x.entry.class : "") + (kind === "organize" && x.entry.email ? " · " + x.entry.email : "")]),
         teamSheet(x) ? h("span", { class: "badge info", title: "The team pre-filled its tech sheet" }, ["team sheet"]) : null,
+        (() => { const s = (b.techSheets || []).find((y) => y.carNumber === x.entry.car_number);
+          return s && s.lockedBy && s.lockedBy !== ui.roles.email ? h("span", { class: "badge cond", title: "Its sheet is open on " + s.lockedBy + "'s device" }, ["open: " + s.lockedBy]) : null; })(),
         // Its sheet's progress, until it's signed off.
         x.entry.tech_status === "pending" && sheetProgress(x) ? (() => { const c = sheetProgress(x).c; return h("span", { class: "badge " + (c.fail ? "req" : c.todo ? "info" : "pass") },
           [c.todo ? c.total - c.todo + "/" + c.total + " checked" : "all checked" + (c.fail ? " · " + c.fail + " fail" : "")]); })() : null,
@@ -1270,7 +1297,7 @@
     ]);
     const filterBox = h("div", { class: "field-row" }, [field("Find a car", input({ value: entryFilter, "data-id": "entry-filter", placeholder: "car number, driver, car…" }, (v) => { entryFilter = v; render(); restoreFocus("entry-filter"); }))]);
     const out = [
-      actions(btn("← All events", () => { ui.event = null; ui.techSheet = null; render(); }, "small secondary"),
+      actions(btn("← All events", () => { ui.event = null; closeTechSheet(); render(); }, "small secondary"),
         kind === "scrutineer" ? btn("Print the event's stickers", printEventStickers, "small secondary") : null),
       h("h3", { class: "account-event-title" }, [ev.name + " -- " + bodyName(ev.body_id)]),
       desc([fmtDate(ev.starts_on) + (ev.ends_on !== ev.starts_on ? " to " + fmtDate(ev.ends_on) : ""), ev.location,
@@ -1753,7 +1780,7 @@
   function goMode(mode) {
     if (mode !== "create" && app) app.hideWorkspace();
     // Each section starts on its list: no event or body left open from before.
-    if (mode !== ui.mode) { ui.event = null; ui.techSheet = null; ui.body = null; ui.templateEdit = null; ui.show = {}; }
+    if (mode !== ui.mode) { ui.event = null; closeTechSheet(); ui.body = null; ui.templateEdit = null; ui.show = {}; }
     ui.mode = mode; ui.message = null; render();
     holder.scrollIntoView({ behavior: "smooth", block: "start" });
   }

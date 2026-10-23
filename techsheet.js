@@ -325,6 +325,7 @@
         h("span", { class: "techsheet-caret" }, [open ? "▾" : "▸"]),
         h("strong", {}, [r.label]),
         r.item.checkedBy === "team" ? h("span", { class: "badge info", title: "Checked by the competitor" }, ["competitor"]) : null,
+        res.teamUpdatedAt && !res.result ? h("span", { class: "badge cond", title: "The team changed this line after the inspection started: check it again" }, ["updated by the team"]) : null,
         verdictChip,
         !open && res.note ? h("span", { class: "element-desc techsheet-line-note" }, [res.note]) : null,
         h("span", { class: "techsheet-line-spacer" }),
