@@ -234,3 +234,25 @@
 .techsheet-visibility label { cursor: pointer; }
 /* The other site (Digital logbooks / Scrutineering), under the home cards. */
 .account-other-site { margin: 14px 0 0; font-size: 0.9rem; color: var(--muted); }
+
+/* Tech stickers (stickers.js): the print dialog and a scanned sticker. */
+.sticker-dialog-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+.sticker-dialog { background: var(--panel); color: inherit; border: 1px solid var(--border); border-radius: 10px; padding: 16px; width: min(560px, 100%); max-height: 90vh; overflow: auto; }
+.sticker-dialog h3 { margin: 0 0 10px; }
+.sticker-preview { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.sticker-preview figure { margin: 0; text-align: center; font-size: 0.75rem; }
+.sticker-preview svg { width: 120px; height: 120px; border: 1px solid var(--border); border-radius: 4px; display: block; }
+.sticker-formats { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
+.sticker-status { padding: 10px 12px; border-radius: 8px; border: 2px solid var(--border); margin-bottom: 10px; font-size: 1.05rem; }
+.sticker-status.valid { background: var(--pass-bg); color: var(--pass); border-color: var(--pass); }
+.sticker-status.void { background: var(--fail-bg); color: var(--fail); border-color: var(--fail); }
+.sticker-view h3 { margin: 6px 0; }
+.sticker-photos { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.sticker-photo { position: relative; display: block; }
+.sticker-photo img { width: 150px; height: 112px; object-fit: cover; border-radius: 6px; display: block; background: var(--border); }
+.sticker-photo.tag img { outline: 2px solid var(--accent); }
+.sticker-photo span { position: absolute; left: 4px; bottom: 4px; background: var(--accent); color: #fff; font-size: 0.7rem; padding: 0 6px; border-radius: 999px; }
+.sticker-certs { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+.sticker-cert { display: flex; flex-direction: column; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; }
+.sticker-results-title { font-weight: 600; margin-top: 8px; }
+.sticker-results ul { list-style: none; padding: 0; margin: 4px 0; display: flex; flex-direction: column; gap: 3px; }

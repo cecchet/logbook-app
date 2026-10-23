@@ -42,6 +42,7 @@
     issued: null,         // the last logbook issued here
     found: null,          // search_logbooks() results
     publicView: null,     // ?logbook= : { token, data }
+    stickerView: null,    // ?s= (a scanned tech sticker): { code, data, catalog }
   };
 
   // ---- DOM helpers (text only: nothing from the server is parsed as HTML) --
@@ -814,7 +815,10 @@
       inspection: keep ? keep.inspection : JSON.parse(JSON.stringify((existing && existing.inspection) || { items: {} })),
       status: existing ? existing.status : "new", signAsChief: false,
       view: {}, // what's folded (techsheet.js)
+      sheetId: existing ? existing.id : null,
+      stickers: null, // list_stickers() for this sheet
     };
+    if (existing) loadSheetStickers();
     render();
     setTimeout(() => { const el = document.getElementById("techsheet-panel"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 0);
   }
@@ -833,8 +837,11 @@
         inspection: { items: t.inspection.items, corrections: t.inspection.corrections || "" },
         finish: finish || undefined, signAs: finish && t.signAsChief ? "chief" : undefined,
       } });
-      say("pass", finish ? "Car " + t.entry.car_number + " " + (finish === "pass" ? "passed" : "failed") + (s.record ? " -- recorded in its logbook." : ".") : "Tech sheet saved.");
-      if (finish) ui.techSheet = null; else t.status = s.status;
+      say("pass", finish ? "Car " + t.entry.car_number + " " + (finish === "pass" ? "passed" : "failed") + (s.record ? " -- recorded in its logbook." : ".") +
+        (finish === "pass" ? " Its stickers can be issued below." : "") : "Tech sheet saved.");
+      // Passed: the sheet stays open for its stickers.
+      if (finish === "fail") ui.techSheet = null;
+      else { t.status = s.status; t.sheetId = s.id; loadSheetStickers(); }
       await openEvent(ui.event.event.id); loadEventsOnly();
     } catch (e) { fail(e); }
   }
@@ -916,6 +923,73 @@
         editable ? btn("Import the team's sheet (file)", importTeamSheet, "small secondary") : null,
         btn("Close", () => { ui.techSheet = null; render(); }, "small secondary"),
       ),
+      renderSheetStickers(t, !!myRole),
+    ]);
+  }
+
+  // ---- Tech stickers for the open sheet (stickers.js) ----------------------
+  // A helmet / HANS / seat line that passed, with a photo of the item and of
+  // its tag, gets a gear sticker; a car that passed, its tech-pass sticker.
+  const STICKER_GEAR = ["helmet", "hnr", "seat"];
+  async function loadSheetStickers() {
+    const t = ui.techSheet;
+    if (!t || !t.sheetId) return;
+    try { t.stickers = await rpc("list_stickers", { p: { techSheet: t.sheetId } }); } catch (e) { t.stickers = []; }
+    if (ui.techSheet === t) render();
+  }
+  async function issueSticker(p, then, replacing) {
+    if (replacing && !confirm("Issue a new sticker? Sticker " + Stickers.fmtCode(replacing.code) + " becomes void -- peel it off.")) return;
+    try {
+      const st = await rpc("issue_sticker", { p });
+      if (then) await then();
+      Stickers.printDialog([st]);
+    } catch (e) { fail(e); }
+  }
+  // Every valid sticker issued at the event, to print in one go.
+  async function printEventStickers() {
+    try {
+      const list = (await rpc("list_stickers", { p: { event: ui.event.event.id } })).filter((s) => !s.voidedAt);
+      if (!list.length) return say("fail", "No stickers issued at this event yet: they're issued from each car's tech sheet.");
+      Stickers.printDialog(list);
+    } catch (e) { fail(e); }
+  }
+  // A logbook's sticker (cage, logbook cover): the one already issued, else a new one.
+  async function logbookSticker(id) {
+    try {
+      const list = (await rpc("list_stickers", { p: { logbook: id } })).filter((s) => !s.voidedAt && s.kind === "logbook");
+      if (list.length) return Stickers.printDialog(list.slice(-1));
+      Stickers.printDialog([await rpc("issue_sticker", { p: { kind: "logbook", logbook: id } })]);
+    } catch (e) { fail(e); }
+  }
+  function renderSheetStickers(t, staff) {
+    const gearRows = TechSheet.lines(t.template, t.variant).flatMap((g) => g.rows).filter((r) => STICKER_GEAR.includes(r.item.gear));
+    if (!staff || (!gearRows.length && t.status !== "passed")) return null;
+    const title = h("div", { class: "account-card-title" }, ["Stickers"]);
+    if (!t.sheetId) return h("div", { class: "account-card" }, [title, desc("Save the sheet to issue its stickers.")]);
+    const valid = (t.stickers || []).filter((s) => !s.voidedAt);
+    const declared = (t.competitor && t.competitor.items) || {};
+    const row = (label, st, why, issue) => h("div", { class: "account-entry" }, [
+      h("span", { class: "account-entry-main" }, [h("strong", {}, [label]),
+        h("span", { class: "element-desc" }, [st ? " · sticker " + Stickers.fmtCode(st.code) + ", " + fmtDate(st.issuedAt) : why ? " · to issue its sticker: " + why : " · no sticker yet"])]),
+      st ? btn("Print", () => Stickers.printDialog([st]), "small secondary") : null,
+      !why ? btn(st ? "Re-issue" : "Issue sticker", issue, st ? "small secondary" : "small") : null,
+      st ? btn("Void", () => voidSticker(st.code), "small secondary") : null,
+    ]);
+    const rows = gearRows.map((r) => {
+      const res = t.inspection.items[r.key] || {};
+      const photos = [].concat((declared[r.key] || {}).photos || [], res.photos || []);
+      const st = valid.find((s) => s.kind === "gear" && s.item === r.key);
+      const why = res.result !== "pass" ? "mark it Pass" : !photos.some((p) => p.kind !== "tag") ? "add a photo of it" : !photos.some((p) => p.kind === "tag") ? "add a photo of its tag (🏷️)" : null;
+      return row(r.label, st, why, () => issueSticker({ kind: "gear", techSheet: t.sheetId, item: r.key, label: r.label }, loadSheetStickers, st));
+    });
+    const carSt = valid.find((s) => s.kind === "car");
+    rows.push(row("Car #" + t.entry.car_number + " tech pass", carSt, t.status === "passed" ? null : "finish the sheet as Passed",
+      () => issueSticker({ kind: "car", techSheet: t.sheetId }, loadSheetStickers, carSt)));
+    return h("div", { class: "account-card" }, [
+      title,
+      desc("Printed QR codes: a gear sticker goes on the helmet, HANS or seat (scanning it shows its photos and certification); the tech pass goes on the car. Save the sheet before issuing."),
+      rows,
+      valid.length > 1 ? actions(btn("Print all " + valid.length, () => Stickers.printDialog(valid), "small secondary")) : null,
     ]);
   }
 
@@ -1196,7 +1270,8 @@
     ]);
     const filterBox = h("div", { class: "field-row" }, [field("Find a car", input({ value: entryFilter, "data-id": "entry-filter", placeholder: "car number, driver, car…" }, (v) => { entryFilter = v; render(); restoreFocus("entry-filter"); }))]);
     const out = [
-      actions(btn("← All events", () => { ui.event = null; ui.techSheet = null; render(); }, "small secondary")),
+      actions(btn("← All events", () => { ui.event = null; ui.techSheet = null; render(); }, "small secondary"),
+        kind === "scrutineer" ? btn("Print the event's stickers", printEventStickers, "small secondary") : null),
       h("h3", { class: "account-event-title" }, [ev.name + " -- " + bodyName(ev.body_id)]),
       desc([fmtDate(ev.starts_on) + (ev.ends_on !== ev.starts_on ? " to " + fmtDate(ev.ends_on) : ""), ev.location,
         "accepts logbooks from " + ev.accepted_bodies.map(bodyName).join(", "),
@@ -1604,6 +1679,47 @@
     ]);
   }
 
+  // ---- A scanned tech sticker (?s=<code>, stickers.js) ----------------------
+  // What it vouches for, to anyone (names only to scrutineers); a scrutineer
+  // of its body can void it. A logbook sticker opens the logbook's public view.
+  async function loadSticker(code) {
+    ui.stickerView = { code, data: undefined };
+    render();
+    try {
+      const d = ui.stickerView.data = await rpc("sticker_view", { p_code: code });
+      if (d && d.kind === "logbook" && d.status === "valid" && d.logbook && d.logbook.publicToken) {
+        ui.stickerView = null;
+        return loadPublic(d.logbook.publicToken);
+      }
+      if (d && d.kind === "gear") TechSheet.loadCatalog().then((c) => { if (ui.stickerView) { ui.stickerView.catalog = c; render(); } }, () => {});
+    } catch (e) { ui.stickerView.data = null; fail(e); }
+    render();
+  }
+  function stickerStandard(cat, id) {
+    const c = ui.stickerView && ui.stickerView.catalog;
+    const x = c && c.categories.find((y) => y.id === cat);
+    return (((x && x.standards) || []).concat(c ? c.categories.flatMap((y) => y.standards || []) : []).find((s) => s.id === id) || {}).label || id;
+  }
+  async function voidSticker(code) {
+    const reason = prompt("Void sticker " + Stickers.fmtCode(code) + " -- why? (e.g. failed tech, item replaced, sticker copied)", "");
+    if (!reason || !reason.trim()) return;
+    try {
+      await rpc("void_sticker", { p_code: code, p_reason: reason.trim() });
+      say("pass", "Sticker " + Stickers.fmtCode(code) + " is void.");
+      if (ui.stickerView) loadSticker(code);
+      if (ui.techSheet) loadSheetStickers();
+    } catch (e) { fail(e); }
+  }
+  function renderSticker() {
+    const v = ui.stickerView;
+    if (v.data === undefined) return desc("Loading the sticker…");
+    if (!v.data) return h("p", { class: "verdict fail" }, ["There's no sticker " + Stickers.fmtCode(v.code) + " -- check the code printed under the QR code."]);
+    const d = v.data;
+    return Stickers.view(d, { photoUrl: techPhotoUrl, standardLabel: stickerStandard, lines: TechSheet.lines,
+      onVoid: d.staff ? () => voidSticker(d.code) : null,
+      onOpenLogbook: d.logbook && d.logbook.publicToken ? () => { ui.stickerView = null; loadPublic(d.logbook.publicToken); } : null });
+  }
+
   // ---- Home: the modes ------------------------------------------------------
   // Like PassTech's landing page: one card per mode the person can use.
   // Two sites from this app (config.js, window.APP_SITE): Digital logbooks
@@ -1708,6 +1824,7 @@
       return [openLogbookBar([
         btn("View the rollcage", () => app.showPart("rollcage"), "small secondary"),
         issued ? btn("View the event log", () => app.showPart("events"), "small secondary") : null,
+        issued && issued.id && ui.roles.accreditations.length ? btn("QR sticker", () => logbookSticker(issued.id), "small secondary") : null,
         btn("Logbook library", () => goMode("library"), "small secondary"),
       ])];
     }
@@ -1739,7 +1856,9 @@
   // ---- Panel ---------------------------------------------------------------
   function render() {
     const children = [];
-    if (ui.publicView) {
+    if (ui.stickerView) {
+      children.push(h("h2", {}, ["Tech sticker"]), renderSticker(), actions(h("a", { class: "btn small secondary", href: location.pathname }, ["Close"])));
+    } else if (ui.publicView) {
       children.push(h("h2", {}, ["Logbook"]), renderPublic(), actions(h("a", { class: "btn small secondary", href: location.pathname }, ["Close"])));
     } else if (!ui.session) {
       children.push(h("h2", {}, ["Sign in"]), renderSignIn(), renderDevice());
@@ -1788,6 +1907,7 @@
   // The session bar's library button opens this panel's library (signed
   // in), or the library window (signed out).
   if (app && app.setLibraryHandler) app.setLibraryHandler(() => (ui.session ? goMode("library") : app.openLibrary()));
+  const stickerCode = window.Stickers && Stickers.codeFromUrl();
   const token = new URLSearchParams(location.search).get("logbook");
-  if (token) loadPublic(token); else render();
+  if (stickerCode) loadSticker(stickerCode); else if (token) loadPublic(token); else render();
 })();

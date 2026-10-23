@@ -367,22 +367,23 @@
           h("div", { class: "techsheet-photos techsheet-own-photos" }, [
             (res.photos || []).map((p, i) => h("span", { class: "techsheet-own-photo" }, [photo(p, opts),
               ed ? h("button", { type: "button", class: "techsheet-photo-x", title: "Remove", onclick: () => { res.photos.splice(i, 1); opts.onChange(); } }, ["×"]) : null])),
-            ed && opts.addPhoto ? addPhotoButton(res) : null,
+            // Gear: its tag too (a helmet / HANS / seat sticker needs a photo of each).
+            ed && opts.addPhoto ? [addPhotoButton(res, "item"), r.item.gear ? addPhotoButton(res, "tag") : null] : null,
           ]),
         ]),
       ]);
     }
-    function addPhotoButton(res) {
+    function addPhotoButton(res, kind) {
       const input = h("input", { type: "file", accept: "image/*", multiple: true, class: "techsheet-file", onchange: async () => {
         const files = [...input.files];
         input.value = "";
         for (const f of files) {
-          try { const sha = await opts.addPhoto(f); res.photos = (res.photos || []).concat({ sha256: sha, kind: "item" }); }
+          try { const sha = await opts.addPhoto(f); res.photos = (res.photos || []).concat({ sha256: sha, kind }); }
           catch (e) { alert("Couldn't add the photo: " + (e.message || e)); }
         }
         opts.onChange();
       } });
-      return h("label", { class: "btn small secondary techsheet-add-photo" }, ["📷 Add photo", input]);
+      return h("label", { class: "btn small secondary techsheet-add-photo" }, [kind === "tag" ? "🏷️ Add tag photo" : "📷 Add photo", input]);
     }
 
     out.push(h("label", { class: "techsheet-field techsheet-corrections" }, [
