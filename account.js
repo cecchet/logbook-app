@@ -1277,6 +1277,7 @@
       return s && s.template ? { sheet: s, c: TechSheet.counts(s.template, s.variant, s.inspection || { items: {} }) } : null;
     };
     const allChecked = (x) => { const p = sheetProgress(x); return !!p && p.c.total > 0 && p.c.todo === 0; };
+    const isReTech = (x) => { const p = sheetProgress(x); return !!p && ((p.sheet.inspection || {}).history || []).length > 0; };
     const entryRow = (x, withButtons) => h("div", { class: "account-entry" }, [
       h("span", { class: "account-car-number" }, ["#" + x.entry.car_number]),
       h("span", { class: "account-entry-main" }, [
@@ -1292,7 +1293,7 @@
       withButtons && hasSheet ? btn("Tech sheet", () => openTechSheet(x), "small secondary") : null,
       x.entry.tech_status === "pending"
         ? (withButtons && !hasSheet && x.logbook && myRole && open ? h("span", {}, [btn("Passed", () => inspect(x.entry, true), "small"), " ", btn("Failed", () => inspect(x.entry, false), "small secondary")])
-          : h("span", { class: "badge info" }, [allChecked(x) ? "to sign off" : "to inspect"]))
+          : h("span", { class: "badge " + (isReTech(x) && !allChecked(x) ? "cond" : "info") }, [allChecked(x) ? "to sign off" : isReTech(x) ? "re-tech" : "to inspect"]))
         : h("span", { class: "badge " + (x.entry.tech_status === "passed" ? "pass" : "req") }, [x.entry.tech_status]),
     ]);
     const filterBox = h("div", { class: "field-row" }, [field("Find a car", input({ value: entryFilter, "data-id": "entry-filter", placeholder: "car number, driver, car…" }, (v) => { entryFilter = v; render(); restoreFocus("entry-filter"); }))]);
@@ -1371,7 +1372,9 @@
     // To inspect; every line checked but not signed off yet (Passed / Failed waits for the
     // scrutineering window); passed; failed.
     const pending = entries.filter((x) => x.entry.tech_status === "pending");
-    const toInspect = pending.filter((x) => !allChecked(x));
+    // Failed, then the team re-submitted what failed: only those lines to check again.
+    const reTech = pending.filter((x) => !allChecked(x) && isReTech(x));
+    const toInspect = pending.filter((x) => !allChecked(x) && !isReTech(x));
     const toSign = pending.filter(allChecked);
     const passed = entries.filter((x) => x.entry.tech_status === "passed");
     const failed = entries.filter((x) => x.entry.tech_status === "failed");
@@ -1392,6 +1395,9 @@
     if (toSign.length) out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Checked -- waiting for sign-off (" + toSign.length + ")"]),
       desc(open ? "Every line has a result: open the sheet and finish it as Passed or Failed." : "Every line has a result. Passed / Failed can be recorded once scrutineering opens (" + fmtDate(ev.scrutineering_starts_on) + ")."),
       toSign.map((x) => entryRow(x, true))]));
+    if (reTech.length) out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Ready for re-tech (" + reTech.length + ")"]),
+      desc("Failed, then the team re-submitted what failed: open the sheet -- the lines they changed are marked \"updated by the team\"."),
+      reTech.map((x) => entryRow(x, true))]));
     out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["To inspect (" + toInspect.length + ")"]), toInspect.length ? toInspect.map((x) => entryRow(x, true)) : desc("None.")]));
     out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Passed (" + passed.length + ")"]), passed.length ? passed.map((x) => entryRow(x, true)) : desc("None yet.")]));
     if (failed.length) out.push(h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Failed (" + failed.length + ")"]), failed.map((x) => entryRow(x, true))]));

@@ -63,6 +63,10 @@ if (window.APP_SITE === "scrutineering") {
   });
 }
 
+// PassTech's photo readers (its /api/analyze-tag and /api/analyze-helmet), for the tech sheets'
+// "Scan tag photo": the deployed PassTech, or a local one (port 5004) when this runs locally.
+window.PASSTECH_URL = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? "http://localhost:5004" : "https://passtech.frogracing.us";
+
 // The central logbook repository (Supabase -- see supabase/README.md). The
 // anon key is public by design: the database's access rules protect the
 // data. Never put the service_role key here.

@@ -138,7 +138,8 @@
   // ---- The gear details form (like PassTech's My gear) ---------------------
   // entry: an EquipmentEntry, edited in place. changed(rerender) after each change.
   const newKey = () => Math.random().toString(36).slice(2, 10);
-  function gearForm(E, cat, entry, ed, changed) {
+  // scan: { addPhoto(file, kind) } -- the tag reader below the certifications, while editable.
+  function gearForm(E, cat, entry, ed, changed, scan) {
     const meta = E.CATEGORY_META[cat] || {};
     entry.category = cat;
     const field = (label, input, cls) => h("label", { class: "techsheet-field" + (cls ? " " + cls : "") }, [h("span", {}, [label]), input]);
@@ -198,10 +199,120 @@
       c.standardId === E.NOT_LISTED ? field("Which", h("input", { type: "text", disabled: !ed, value: c.customStandardLabel || "", onchange: (e) => { c.customStandardLabel = e.target.value; changed(true); } })) : null,
       cat === "fire_suppression" ? field("Next service due", date(c, "nextServiceDate")) : field("Label / manufacture date", date(c, "labelDate")),
       cat === "fire_suppression" ? null : field("Expiration on the tag", date(c, "tagExpirationDate")),
+      field("Homologation number", h("input", { type: "text", disabled: !ed, value: c.homologationNumber || "", placeholder: "e.g. PH.012.24-C", onchange: (e) => { c.homologationNumber = e.target.value.trim() || undefined; changed(true); } })),
       field("Serial number", h("input", { type: "text", disabled: !ed, value: c.serialNumber || "", placeholder: "e.g. 000345", onchange: (e) => { c.serialNumber = e.target.value.trim() || undefined; changed(true); } })),
       entry.certifications.length > 1 ? small("Remove", () => { entry.certifications.splice(i, 1); changed(true); }) : null,
     ]));
-    return [h("div", { class: "techsheet-values" }, out), certRows];
+    return [h("div", { class: "techsheet-values" }, out), certRows, scan ? tagScanner(E, cat, entry, scan, changed) : null];
+  }
+
+  // ---- Reading gear tags from photos (PassTech's readers) -------------------
+  // The same AI tag reader as PassTech's "Scan tag photo" (its /api/analyze-tag, and
+  // /api/analyze-helmet for a whole-helmet photo), at window.PASSTECH_URL (config.js). What it
+  // reads is offered, then filled into the gear details on "Use this"; the photo joins the line's.
+  const scans = new WeakMap(); // gear entry -> { busy, error, candidates, notes, added, file, helmet }
+  function photoForReader(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(img.src);
+        resolve(c.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = () => reject(new Error("not a photo the browser can read"));
+      img.src = URL.createObjectURL(file);
+    });
+  }
+  async function passtechReader(path, body) {
+    const r = await fetch((window.PASSTECH_URL || "https://passtech.frogracing.us") + path, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || "PassTech couldn't read the photo (HTTP " + r.status + ")");
+    return data;
+  }
+  // A read certification into the gear: replacing the one of the same standard, else an empty
+  // row, else added. A tag side that only prints a serial (a folded harness tag) gives its serial
+  // to the one recognized certification without one, FIA first -- like PassTech's mergeCertification.
+  function useCandidate(E, entry, c) {
+    const list = entry.certifications = entry.certifications || [];
+    const cert = { key: newKey(), standardId: c.standardId };
+    if (c.standardId === E.NOT_LISTED && c.rawText) cert.customStandardLabel = c.rawText;
+    ["homologationNumber", "serialNumber", "labelDate", "dateType", "tagExpirationDate"].forEach((k) => { if (c[k]) cert[k] = c[k]; });
+    if (c.standardId === E.NOT_LISTED && cert.serialNumber && !cert.homologationNumber && !cert.labelDate && !cert.tagExpirationDate) {
+      const open = list.filter((x) => x.standardId && x.standardId !== E.NOT_LISTED && !x.serialNumber);
+      const fia = open.filter((x) => /^fia/.test(x.standardId));
+      const target = fia.length === 1 ? fia[0] : !fia.length && open.length === 1 ? open[0] : null;
+      if (target) { target.serialNumber = cert.serialNumber; return; }
+    }
+    const same = c.standardId !== E.NOT_LISTED ? list.findIndex((x) => x.standardId === c.standardId) : -1;
+    const empty = list.findIndex((x) => !x.standardId);
+    if (same >= 0) list[same] = Object.assign({}, cert, { key: list[same].key, serialNumber: cert.serialNumber || list[same].serialNumber });
+    else if (empty >= 0) list[empty] = Object.assign({}, cert, { key: list[empty].key });
+    else list.push(cert);
+  }
+  function tagScanner(E, cat, entry, scan, changed) {
+    const st = scans.get(entry) || {};
+    scans.set(entry, st);
+    const run = async (file, kind) => {
+      Object.assign(st, { busy: kind === "helmet" ? "Reading the helmet…" : "Reading the tag…", error: null });
+      if (kind === "tag") Object.assign(st, { candidates: null, notes: null, added: new Set(), file, photoAdded: false });
+      changed();
+      try {
+        const imageDataUrl = await photoForReader(file);
+        if (kind === "helmet") {
+          const r = await passtechReader("/api/analyze-helmet", { imageDataUrl });
+          if (r.helmetType && r.helmetType !== "unclear") entry.helmetType = r.helmetType;
+          entry.hasVisor = !!r.hasVisor;
+          if (r.visorNote) entry.visorNote = r.visorNote;
+          st.helmet = (r.helmetType === "unclear" ? "Style unclear -- pick it above" : r.helmetType === "full_face" ? "Full face" : "Open face") +
+            " · " + (r.hasVisor ? "visor/shield" : "no visor/shield") + " -- filled in above, with the photo.";
+          await scan.addPhoto(file, "item");
+        } else {
+          const r = await passtechReader("/api/analyze-tag", { category: cat, imageDataUrl });
+          st.candidates = r.candidates || [];
+          st.notes = r.notes || null;
+        }
+      } catch (e) { st.error = e.message || String(e); }
+      st.busy = null;
+      changed(true);
+    };
+    const pickButton = (label, kind) => {
+      const input = h("input", { type: "file", accept: "image/*", class: "techsheet-file", onchange: () => { const f = input.files[0]; input.value = ""; if (f) run(f, kind); } });
+      return h("label", { class: "btn small secondary techsheet-add-photo" + (st.busy ? " disabled" : "") }, [label, input]);
+    };
+    const describe = (c) => [c.standardId === E.NOT_LISTED ? "\"" + (c.rawText || "not listed") + "\"" : E.standardLabel(c.standardId),
+      c.homologationNumber ? "homologation " + c.homologationNumber : "", c.serialNumber ? "serial " + c.serialNumber : "",
+      c.labelDate ? (c.dateType === "recertification" ? "recertified " : "label ") + c.labelDate : "", c.tagExpirationDate ? "expires " + c.tagExpirationDate : "",
+      "(" + c.confidence + " confidence)"].filter(Boolean).join(" · ");
+    return h("div", { class: "techsheet-tag-scan" }, [
+      h("div", { class: "techsheet-tag-scan-buttons" }, [
+        pickButton("📷 Scan tag photo", "tag"),
+        cat === "helmet" ? pickButton("📷 Scan a full photo of the helmet", "helmet") : null,
+        h("span", { class: "element-desc" }, [st.busy || "PassTech reads the certification off a photo of the tag -- nothing is filled in until you pick it."]),
+      ]),
+      st.error ? h("p", { class: "verdict fail" }, [st.error]) : null,
+      st.helmet ? h("p", { class: "element-desc" }, [st.helmet]) : null,
+      st.notes ? h("p", { class: "element-desc" }, [st.notes]) : null,
+      st.candidates && !st.candidates.length ? h("p", { class: "element-desc" }, ["No certification recognized in the photo."]) : null,
+      (st.candidates || []).map((c, i) => h("div", { class: "techsheet-tag-candidate" + (c.categoryMismatch ? " mismatch" : "") }, [
+        c.categoryMismatch ? h("strong", {}, ["Wrong item? This looks like a " + (c.detectedCategory || "different") + " tag. "]) : null,
+        h("span", {}, [describe(c)]),
+        h("button", { type: "button", class: "btn small" + (st.added.has(i) ? " secondary" : ""), disabled: st.added.has(i), onclick: async () => {
+          useCandidate(E, entry, c);
+          st.added.add(i);
+          changed(true);
+          // The tag photo joins the line's photos with the first certification used from it.
+          if (!st.photoAdded && st.file) {
+            st.photoAdded = true;
+            try { await scan.addPhoto(st.file, "tag"); } catch (e) { st.error = "Couldn't keep the photo: " + (e.message || e); }
+            changed(true);
+          }
+        } }, [st.added.has(i) ? "Used" : "Use this"]),
+      ])),
+    ]);
   }
 
   // The sheet. opts: {
@@ -352,7 +463,9 @@
           // The gear's details, as PassTech asks for them -- with PassTech's verdict on them.
           gearEntry ? h("div", { class: "techsheet-gear-form" }, [
             h("div", { class: "techsheet-gear-form-title" }, ["Gear details" + (dec && dec.gear ? " (from the competitor's sheet -- correct them if needed)" : "")]),
-            E ? gearForm(E, r.item.gear, gearEntry, ed, () => opts.onChange()) : h("p", { class: "element-desc" }, ["Loading PassTech's gear checks…"]),
+            E ? gearForm(E, r.item.gear, gearEntry, ed, () => opts.onChange(), ed && opts.addPhoto ? {
+              addPhoto: async (file, kind) => { const sha = await opts.addPhoto(file); res.photos = (res.photos || []).concat({ sha256: sha, kind }); },
+            } : null) : h("p", { class: "element-desc" }, ["Loading PassTech's gear checks…"]),
             verdict ? h("div", { class: "techsheet-verdict-box " + verdictClass(verdict) }, [h("strong", {}, ["PassTech: " + VERDICT_LABEL[verdict.status] + " -- "]), verdict.reason]) : null,
           ]) : null,
           (r.item.fields || []).length ? h("div", { class: "techsheet-values" }, r.item.fields.map((f) => h("label", { class: "techsheet-field" }, [
