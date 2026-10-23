@@ -923,9 +923,17 @@
     const editable = !!myRole && !over && !finished;
     const c = TechSheet.counts(t.template, t.variant, t.inspection);
     const declaredBy = t.competitor && (t.competitor.by || t.competitor.file);
+    // Save / Finish / Close: at the top and at the bottom of a long sheet.
+    const mainButtons = () => [
+      editable ? btn("Save", () => saveTechSheet(null), "small secondary") : null,
+      editable && open ? btn("Finish: Passed", () => saveTechSheet("pass"), "small") : null,
+      editable && open ? btn("Finish: Failed", () => saveTechSheet("fail"), "small secondary") : null,
+    ];
+    const closeButton = () => btn("Close", () => { closeTechSheet(); render(); }, "small secondary");
     return h("div", { class: "account-card", id: "techsheet-panel" }, [
       h("div", { class: "account-card-title" }, ["Car #" + t.entry.car_number + " -- " + t.template.title,
         t.status === "passed" || t.status === "failed" ? h("span", { class: "badge " + (t.status === "passed" ? "pass" : "req") }, [t.status]) : null]),
+      actions(...mainButtons(), closeButton()),
       desc([c.pass + " pass", c.fail + " fail", c.na ? c.na + " N/A" : null, c.todo + " to check",
         declaredBy ? "team's sheet from " + declaredBy : "no team sheet (filled here from paper)"].filter(Boolean).join(" · ")),
       // Earlier rounds: failed, then the team re-submitted what failed.
@@ -942,11 +950,9 @@
         editable, view: t.view, photoUrl: techPhotoUrl, addPhoto: addTechPhoto, setVariant: (v) => { t.variant = v; }, onChange: render }),
       editable && open && myRole === "chief" ? h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: t.signAsChief, onchange: (e) => { t.signAsChief = e.target.checked; } }), " Also sign as chief scrutineer"]) : null,
       actions(
-        editable ? btn("Save", () => saveTechSheet(null), "small secondary") : null,
-        editable && open ? btn("Finish: Passed", () => saveTechSheet("pass"), "small") : null,
-        editable && open ? btn("Finish: Failed", () => saveTechSheet("fail"), "small secondary") : null,
+        ...mainButtons(),
         editable ? btn("Import the team's sheet (file)", importTeamSheet, "small secondary") : null,
-        btn("Close", () => { closeTechSheet(); render(); }, "small secondary"),
+        closeButton(),
       ),
       renderSheetStickers(t, !!myRole),
     ]);
@@ -1002,7 +1008,7 @@
     ]);
     const rows = gearRows.map((r) => {
       const res = t.inspection.items[r.key] || {};
-      const photos = [].concat((declared[r.key] || {}).photos || [], res.photos || []);
+      const photos = [].concat((declared[r.key] || {}).photos || [], res.photos || []).filter((p) => !(res.removedPhotos || []).includes(p.sha256));
       const st = valid.find((s) => s.kind === "gear" && s.item === r.key);
       const why = res.result !== "pass" ? "mark it Pass" : !photos.some((p) => p.kind !== "tag") ? "add a photo of it" : !photos.some((p) => p.kind === "tag") ? "add a photo of its tag (🏷️)" : null;
       return row(r.label, st, why, () => issueSticker({ kind: "gear", techSheet: t.sheetId, item: r.key, label: r.label }, loadSheetStickers, st));
@@ -1299,7 +1305,7 @@
     const filterBox = h("div", { class: "field-row" }, [field("Find a car", input({ value: entryFilter, "data-id": "entry-filter", placeholder: "car number, driver, car…" }, (v) => { entryFilter = v; render(); restoreFocus("entry-filter"); }))]);
     const out = [
       actions(btn("← All events", () => { ui.event = null; closeTechSheet(); render(); }, "small secondary"),
-        kind === "scrutineer" ? btn("Print the event's stickers", printEventStickers, "small secondary") : null),
+        kind === "scrutineer" && !ui.techSheet ? btn("Print the event's stickers", printEventStickers, "small secondary") : null),
       h("h3", { class: "account-event-title" }, [ev.name + " -- " + bodyName(ev.body_id)]),
       desc([fmtDate(ev.starts_on) + (ev.ends_on !== ev.starts_on ? " to " + fmtDate(ev.ends_on) : ""), ev.location,
         "accepts logbooks from " + ev.accepted_bodies.map(bodyName).join(", "),
@@ -1378,13 +1384,14 @@
     const toSign = pending.filter(allChecked);
     const passed = entries.filter((x) => x.entry.tech_status === "passed");
     const failed = entries.filter((x) => x.entry.tech_status === "failed");
+    // A car's sheet open (or its sheet being picked): only that, until it's closed.
+    if (ui.techSheetPick && ui.techSheetPick.entry.event_id === ev.id) return out.concat(renderTechSheetPick());
+    if (ui.techSheet && ui.techSheet.entry.event_id === ev.id) return out.concat(renderTechSheet());
     const withLogbook = b.entries.filter((x) => x.logbook);
     if (withLogbook.length && SITE === "logbook") {
       out.push(actions(btn("Download this event's logbooks to this device (" + withLogbook.length + ")",
         () => downloadMany(withLogbook.map((x) => x.logbook.id), "Downloading"), "small secondary")));
     }
-    if (ui.techSheetPick && ui.techSheetPick.entry.event_id === ev.id) out.push(renderTechSheetPick());
-    if (ui.techSheet && ui.techSheet.entry.event_id === ev.id) out.push(renderTechSheet());
     // Teams' sheets for cars not on the competitor list yet.
     const orphans = (b.techSheets || []).filter((s) => !b.entries.some((x) => x.entry.car_number === s.carNumber));
     if (orphans.length) out.push(desc("Tech sheets from teams not on the competitor list yet: " + orphans.map((s) => "#" + s.carNumber + (s.header && s.header.driver ? " " + s.header.driver : "")).join(", ") +

@@ -258,7 +258,7 @@
     scans.set(entry, st);
     const run = async (file, kind) => {
       Object.assign(st, { busy: kind === "helmet" ? "Reading the helmet…" : "Reading the tag…", error: null });
-      if (kind === "tag") Object.assign(st, { candidates: null, notes: null, added: new Set(), file, photoAdded: false });
+      if (kind === "tag") Object.assign(st, { candidates: null, notes: null, added: new Set(), file, photoAdded: false, photoNote: null });
       changed();
       try {
         const imageDataUrl = await photoForReader(file);
@@ -267,9 +267,10 @@
           if (r.helmetType && r.helmetType !== "unclear") entry.helmetType = r.helmetType;
           entry.hasVisor = !!r.hasVisor;
           if (r.visorNote) entry.visorNote = r.visorNote;
+          const kept = await scan.addPhoto(file, "item");
           st.helmet = (r.helmetType === "unclear" ? "Style unclear -- pick it above" : r.helmetType === "full_face" ? "Full face" : "Open face") +
-            " · " + (r.hasVisor ? "visor/shield" : "no visor/shield") + " -- filled in above, with the photo.";
-          await scan.addPhoto(file, "item");
+            " · " + (r.hasVisor ? "visor/shield" : "no visor/shield") + " -- filled in above" +
+            (kept === "duplicate" ? " (the photo is already on this line)." : ", with the photo.");
         } else {
           const r = await passtechReader("/api/analyze-tag", { category: cat, imageDataUrl });
           st.candidates = r.candidates || [];
@@ -283,6 +284,14 @@
       const input = h("input", { type: "file", accept: "image/*", class: "techsheet-file", onchange: () => { const f = input.files[0]; input.value = ""; if (f) run(f, kind); } });
       return h("label", { class: "btn small secondary techsheet-add-photo" + (st.busy ? " disabled" : "") }, [label, input]);
     };
+    // A read certification the gear details already hold, value for value (a serial-only read:
+    // that serial on any of them).
+    const FIELDS = ["homologationNumber", "serialNumber", "labelDate", "tagExpirationDate"];
+    const present = (c) => (entry.certifications || []).some((x) =>
+      c.standardId === E.NOT_LISTED && c.serialNumber && !c.homologationNumber && !c.labelDate && !c.tagExpirationDate
+        ? x.serialNumber === c.serialNumber
+        : x.standardId === c.standardId && FIELDS.every((k) => (x[k] || "") === (c[k] || "")) &&
+          (c.standardId !== E.NOT_LISTED || (x.customStandardLabel || "") === (c.rawText || "")));
     const describe = (c) => [c.standardId === E.NOT_LISTED ? "\"" + (c.rawText || "not listed") + "\"" : E.standardLabel(c.standardId),
       c.homologationNumber ? "homologation " + c.homologationNumber : "", c.serialNumber ? "serial " + c.serialNumber : "",
       c.labelDate ? (c.dateType === "recertification" ? "recertified " : "label ") + c.labelDate : "", c.tagExpirationDate ? "expires " + c.tagExpirationDate : "",
@@ -297,7 +306,11 @@
       st.helmet ? h("p", { class: "element-desc" }, [st.helmet]) : null,
       st.notes ? h("p", { class: "element-desc" }, [st.notes]) : null,
       st.candidates && !st.candidates.length ? h("p", { class: "element-desc" }, ["No certification recognized in the photo."]) : null,
-      (st.candidates || []).map((c, i) => h("div", { class: "techsheet-tag-candidate" + (c.categoryMismatch ? " mismatch" : "") }, [
+      st.photoNote ? h("p", { class: "element-desc" }, [st.photoNote]) : null,
+      (st.candidates || []).map((c, i) => present(c) && !st.added.has(i) ? h("div", { class: "techsheet-tag-candidate" }, [
+        h("span", {}, [describe(c)]),
+        h("span", { class: "badge info", title: "The gear details already have this certification, with these exact values" }, ["Already present"]),
+      ]) : h("div", { class: "techsheet-tag-candidate" + (c.categoryMismatch ? " mismatch" : "") }, [
         c.categoryMismatch ? h("strong", {}, ["Wrong item? This looks like a " + (c.detectedCategory || "different") + " tag. "]) : null,
         h("span", {}, [describe(c)]),
         h("button", { type: "button", class: "btn small" + (st.added.has(i) ? " secondary" : ""), disabled: st.added.has(i), onclick: async () => {
@@ -307,7 +320,9 @@
           // The tag photo joins the line's photos with the first certification used from it.
           if (!st.photoAdded && st.file) {
             st.photoAdded = true;
-            try { await scan.addPhoto(st.file, "tag"); } catch (e) { st.error = "Couldn't keep the photo: " + (e.message || e); }
+            try {
+              if (await scan.addPhoto(st.file, "tag") === "duplicate") st.photoNote = "That photo is already on this line -- not added again.";
+            } catch (e) { st.error = "Couldn't keep the photo: " + (e.message || e); }
             changed(true);
           }
         } }, [st.added.has(i) ? "Used" : "Use this"]),
@@ -350,8 +365,11 @@
     const pics = (opts.competitor && opts.competitor.pictures) || {};
     const slots = [["Car", pics.car || []], ["Driver", pics.driver ? [pics.driver] : []], ["Co-driver", pics.codriver ? [pics.codriver] : []]].filter(([, l]) => l.length);
     if (slots.length) {
+      // One group in the viewer: the car's, then the crew's.
+      const crew = slots.flatMap(([, l]) => l.map((p) => Object.assign({ kind: "item" }, p)));
+      let n = 0;
       out.push(h("div", { class: "techsheet-pictures" }, slots.map(([label, list]) => h("figure", {}, [
-        h("div", { class: "techsheet-pictures-row" }, list.map((p) => photo(Object.assign({ kind: "item" }, p), opts))),
+        h("div", { class: "techsheet-pictures-row" }, list.map(() => { const p = crew[n++]; return photo(p, opts, crew); })),
         h("figcaption", {}, [label]),
       ]))));
     }
@@ -444,6 +462,12 @@
       ]);
       if (!open) return h("div", { class: "techsheet-row folded" + (res.result ? " " + res.result : ""), id: "techsheet-line-" + r.key }, [head]);
       const gearEntry = r.item.gear ? (ed ? (res.gear = res.gear || { category: r.item.gear }) : res.gear || (dec && dec.gear)) : null;
+      // The line's photos, the team's then the scrutineer's: one group in the viewer.
+      // (Without the team photos the scrutineer removed -- the wrong tag, say.)
+      const removed = res.removedPhotos || [];
+      const teamPhotos = ((dec && dec.photos) || []).filter((p) => !removed.includes(p.sha256));
+      const linePhotos = teamPhotos.concat(res.photos || []);
+      const addToLine = (file, kind, ask) => addLinePhoto(res, linePhotos, file, kind, ask, opts);
       return h("div", { class: "techsheet-row" + (res.result ? " " + res.result : ""), id: "techsheet-line-" + r.key }, [
         head,
         h("div", { class: "techsheet-item" }, [
@@ -458,13 +482,17 @@
               return h("span", { class: "element-desc" }, [" · " + label + ": " + (Array.isArray(v) ? v.join(", ") : v)]);
             }),
             E && dec.gear ? h("span", { class: "element-desc" }, [" · details: " + gearSummary(E, r.item.gear, dec.gear)]) : null,
-            (dec.photos || []).length ? h("span", { class: "techsheet-photos" }, dec.photos.map((p) => photo(p, opts))) : null,
+            teamPhotos.length ? h("span", { class: "techsheet-photos" }, teamPhotos.map((p) => h("span", { class: "techsheet-own-photo" }, [photo(p, opts, linePhotos),
+              ed ? h("button", { type: "button", class: "techsheet-photo-x", title: "Remove the team's photo from this line (the wrong one, say)",
+                onclick: () => { res.removedPhotos = removed.concat(p.sha256); opts.onChange(); } }, ["×"]) : null]))) : null,
+            removed.length ? h("span", { class: "element-desc" }, [" · " + removed.length + " team photo" + (removed.length === 1 ? "" : "s") + " removed",
+              ed ? [" · ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); delete res.removedPhotos; opts.onChange(); } }, ["Undo"])] : null]) : null,
           ]) : null,
           // The gear's details, as PassTech asks for them -- with PassTech's verdict on them.
           gearEntry ? h("div", { class: "techsheet-gear-form" }, [
             h("div", { class: "techsheet-gear-form-title" }, ["Gear details" + (dec && dec.gear ? " (from the competitor's sheet -- correct them if needed)" : "")]),
             E ? gearForm(E, r.item.gear, gearEntry, ed, () => opts.onChange(), ed && opts.addPhoto ? {
-              addPhoto: async (file, kind) => { const sha = await opts.addPhoto(file); res.photos = (res.photos || []).concat({ sha256: sha, kind }); },
+              addPhoto: (file, kind) => addToLine(file, kind, false),
             } : null) : h("p", { class: "element-desc" }, ["Loading PassTech's gear checks…"]),
             verdict ? h("div", { class: "techsheet-verdict-box " + verdictClass(verdict) }, [h("strong", {}, ["PassTech: " + VERDICT_LABEL[verdict.status] + " -- "]), verdict.reason]) : null,
           ]) : null,
@@ -479,20 +507,20 @@
             oninput: (e) => { res.note = e.target.value; } }) : null,
           // The scrutineer's own photos of it.
           h("div", { class: "techsheet-photos techsheet-own-photos" }, [
-            (res.photos || []).map((p, i) => h("span", { class: "techsheet-own-photo" }, [photo(p, opts),
+            (res.photos || []).map((p, i) => h("span", { class: "techsheet-own-photo" }, [photo(p, opts, linePhotos),
               ed ? h("button", { type: "button", class: "techsheet-photo-x", title: "Remove", onclick: () => { res.photos.splice(i, 1); opts.onChange(); } }, ["×"]) : null])),
             // Gear: its tag too (a helmet / HANS / seat sticker needs a photo of each).
-            ed && opts.addPhoto ? [addPhotoButton(res, "item"), r.item.gear ? addPhotoButton(res, "tag") : null] : null,
+            ed && opts.addPhoto ? [addPhotoButton(addToLine, "item"), r.item.gear ? addPhotoButton(addToLine, "tag") : null] : null,
           ]),
         ]),
       ]);
     }
-    function addPhotoButton(res, kind) {
+    function addPhotoButton(addToLine, kind) {
       const input = h("input", { type: "file", accept: "image/*", multiple: true, class: "techsheet-file", onchange: async () => {
         const files = [...input.files];
         input.value = "";
         for (const f of files) {
-          try { const sha = await opts.addPhoto(f); res.photos = (res.photos || []).concat({ sha256: sha, kind }); }
+          try { await addToLine(f, kind, true); }
           catch (e) { alert("Couldn't add the photo: " + (e.message || e)); }
         }
         opts.onChange();
@@ -514,12 +542,117 @@
     }
     return h("div", { class: "techsheet" }, out);
   }
-  // A team photo (in the tech-sheet-photos bucket), loaded when shown.
-  function photo(p, opts) {
-    const img = h("img", { alt: p.kind === "tag" ? "Tag photo" : "Photo", title: p.kind === "tag" ? "Tag / label" : "Photo" });
-    const a = h("a", { target: "_blank", rel: "noopener", class: "techsheet-photo" + (p.kind === "tag" ? " tag" : "") }, [img]);
-    if (opts.photoUrl) opts.photoUrl(p.sha256).then((url) => { if (url) { img.src = url; a.href = url; } }).catch(() => {});
+  // ---- Duplicate photos ---------------------------------------------------
+  // A photo's look, as a 64-bit difference hash (9 x 8 grayscale): the same picture re-encoded or
+  // resized (the team's copy of a photo, the same file scanned again) hashes the same or nearly.
+  const lookCache = new Map(); // sha256 -> Promise<hash | null>
+  function lookOf(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        // Halved step by step, then 90 x 80 averaged down to 9 x 8: one big jump from a phone's
+        // 4000 px photo samples too few pixels and two copies of a photo don't hash alike.
+        let src = img, w = img.naturalWidth, h = img.naturalHeight;
+        while (w / 2 >= 180 && h / 2 >= 160) {
+          const half = document.createElement("canvas");
+          half.width = w = Math.round(w / 2); half.height = h = Math.round(h / 2);
+          half.getContext("2d").drawImage(src, 0, 0, w, h);
+          src = half;
+        }
+        const c = document.createElement("canvas");
+        c.width = 90; c.height = 80;
+        const ctx = c.getContext("2d");
+        ctx.imageSmoothingQuality = "high";
+        ctx.drawImage(src, 0, 0, 90, 80);
+        const d = ctx.getImageData(0, 0, 90, 80).data;
+        const grey = (x, y) => {
+          let sum = 0;
+          for (let dy = 0; dy < 10; dy++) for (let dx = 0; dx < 10; dx++) {
+            const i = ((y * 10 + dy) * 90 + x * 10 + dx) * 4;
+            sum += d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114;
+          }
+          return sum;
+        };
+        let bits = "";
+        for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) bits += grey(x, y) < grey(x + 1, y) ? "1" : "0";
+        resolve(bits);
+      };
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  }
+  async function looksLikeOneOf(file, photos, opts) {
+    if (!photos.length || !opts.photoUrl) return false;
+    const url = URL.createObjectURL(file);
+    const mine = await lookOf(url);
+    URL.revokeObjectURL(url);
+    if (!mine) return false;
+    for (const p of photos) {
+      if (!lookCache.has(p.sha256)) lookCache.set(p.sha256, opts.photoUrl(p.sha256).then((u) => (u ? lookOf(u) : null), () => null));
+      const theirs = await lookCache.get(p.sha256);
+      let differ = 0;
+      if (theirs) for (let i = 0; i < 64; i++) if (mine[i] !== theirs[i]) differ++;
+      if (theirs && differ <= 4) return true;
+    }
+    return false;
+  }
+  // A photo onto a line, unless it's one already there (the team's or the scrutineer's): "added"
+  // or "duplicate". ask: a look-alike asks first (it could be a second, similar shot); otherwise
+  // it's skipped.
+  async function addLinePhoto(res, linePhotos, file, kind, ask, opts) {
+    if (await looksLikeOneOf(file, linePhotos, opts) &&
+        !(ask && confirm("This photo looks like one already on this line. Add it anyway?"))) return "duplicate";
+    const sha = await opts.addPhoto(file);
+    if (linePhotos.some((p) => p.sha256 === sha)) return "duplicate";
+    res.photos = (res.photos || []).concat({ sha256: sha, kind });
+    return "added";
+  }
+
+  // A team photo (in the tech-sheet-photos bucket), loaded when shown; a click opens it full
+  // screen on this page, with the others of its group (list) a step away.
+  function photo(p, opts, list) {
+    const group = list || [p];
+    const img = h("img", { alt: p.kind === "tag" ? "Tag photo" : "Photo", title: (p.kind === "tag" ? "Tag / label" : "Photo") + " -- click to view full screen" });
+    const a = h("a", { href: "#", class: "techsheet-photo" + (p.kind === "tag" ? " tag" : ""), onclick: (e) => { e.preventDefault(); openViewer(group, Math.max(0, group.indexOf(p)), opts); } }, [img]);
+    if (opts.photoUrl) opts.photoUrl(p.sha256).then((url) => { if (url) img.src = url; }).catch(() => {});
     return a;
+  }
+  // The full-screen viewer, in the shared app's style (its .image-viewer): fitted to the screen,
+  // click the image for full size, ← / → (or the arrows) for the others, Esc or a click around it
+  // to close.
+  function openViewer(list, index, opts) {
+    let i = index, zoomed = false;
+    const overlay = h("div", { role: "dialog", "aria-modal": "true" });
+    const close = () => { overlay.remove(); document.removeEventListener("keydown", onKey); };
+    const step = (d) => { i = (i + d + list.length) % list.length; zoomed = false; draw(); };
+    const onKey = (e) => {
+      if (e.key === "Escape") close();
+      else if (list.length > 1 && e.key === "ArrowLeft") { e.preventDefault(); step(-1); }
+      else if (list.length > 1 && e.key === "ArrowRight") { e.preventDefault(); step(1); }
+    };
+    const arrow = (d, label, text) => h("button", { type: "button", class: "image-viewer-arrow " + (d < 0 ? "prev" : "next"), title: label, "aria-label": label,
+      onclick: (e) => { e.stopPropagation(); step(d); } }, [text]);
+    function draw() {
+      const p = list[i];
+      const caption = (p.kind === "tag" ? "Tag photo" : "Photo") + (list.length > 1 ? " (" + (i + 1) + " of " + list.length + ")" : "");
+      const img = h("img", { alt: caption, title: zoomed ? "Click to fit to the screen" : "Click to zoom in to full size",
+        onclick: (e) => { e.stopPropagation(); zoomed = !zoomed; draw(); } });
+      if (opts.photoUrl) opts.photoUrl(p.sha256).then((url) => { if (url) img.src = url; }).catch(() => {});
+      overlay.className = "modal-overlay image-viewer" + (zoomed ? " zoomed" : "");
+      overlay.setAttribute("aria-label", caption);
+      overlay.replaceChildren(
+        list.length > 1 ? arrow(-1, "Previous picture", "‹") : "",
+        h("figure", { class: "image-viewer-figure" }, [
+          img,
+          h("figcaption", {}, [caption + " · click the image to " + (zoomed ? "fit it to the screen" : "zoom in") + (list.length > 1 ? " · ← / → for the other pictures" : "")]),
+          h("div", { class: "toolbar" }, [h("button", { type: "button", class: "btn small secondary image-viewer-close", onclick: close }, ["Close"])]),
+        ]),
+        list.length > 1 ? arrow(1, "Next picture", "›") : "");
+    }
+    overlay.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    document.body.append(overlay);
+    draw();
   }
 
   // ---- Gear picker (the editor's PassTech categories) -----------------------
