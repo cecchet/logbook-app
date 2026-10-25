@@ -112,6 +112,26 @@
   const isStaff = () => ui.roles && (ui.roles.admin || ui.roles.accreditations.length > 0);
   const isOrganizer = (body) => ui.roles && (ui.roles.admin || ui.roles.accreditations.some((a) => a.body === body && a.role === "technical_director"));
   const organizerBodies = () => ui.bodies.filter((b) => isOrganizer(b.id) && !b.disabled_at && !b.deleted_at);
+  // ---- Permissions (supabase/migrations/20261025000100_scrutineer_permissions.sql) ----
+  // A technical director holds them all; a scrutineer, the five work ones unless their
+  // accreditation lists its own. my_roles() gives each of the caller's accreditations its permissions.
+  const PERMISSIONS = [
+    ["add_scrutineers", "Add scrutineers"], ["renew_licenses", "Renew licenses / disable"], ["edit_permissions", "Edit permissions"],
+    ["delete_scrutineers", "Delete scrutineers"], ["issue_annual_stickers", "Issue annual stickers"], ["void_stickers", "Void stickers"],
+    ["sign_off_tech_sheets", "Sign off tech sheets (Passed / Failed)"], ["issue_logbooks", "Issue logbooks"], ["add_logbook_entries", "Add logbook entries"],
+  ];
+  const ALL_PERMISSIONS = PERMISSIONS.map(([p]) => p);
+  const DEFAULT_SCRUTINEER = ["issue_annual_stickers", "void_stickers", "sign_off_tech_sheets", "issue_logbooks", "add_logbook_entries"];
+  const MANAGE = ["add_scrutineers", "renew_licenses", "edit_permissions", "delete_scrutineers"];
+  // The caller's permissions with a body (all of them for a System admin).
+  const myPermissions = (body) => (ui.roles && ui.roles.admin ? ALL_PERMISSIONS : ((ui.roles && ui.roles.accreditations.find((a) => a.body === body)) || {}).permissions || []);
+  const can = (body, perm) => myPermissions(body).includes(perm);
+  const canAnywhere = (perm) => !!ui.roles && (ui.roles.admin || ui.roles.accreditations.some((a) => (a.permissions || []).includes(perm)));
+  // An accreditation row's permissions (the accreditations table: role, permissions).
+  const accPermissions = (a) => (a.role === "technical_director" ? ALL_PERMISSIONS : a.permissions || DEFAULT_SCRUTINEER);
+  // Whether the caller may change this accreditation: an admin, or someone of its body holding every
+  // permission it holds -- never a technical director's, nor their own (the server checks the same).
+  const canChange = (a) => ui.roles.admin || (a.role !== "technical_director" && a.email !== ui.roles.email && accPermissions(a).every((p) => can(a.body_id, p)));
 
   // ---- Sign-in ---------------------------------------------------------
   async function sendSignIn() {
@@ -436,6 +456,7 @@
       const note = prompt("Upload " + changes.length + " change" + (changes.length === 1 ? "" : "s") + (changes.includes("photos") || changes.includes("paper logbook pages") ? " (photos included)" : "") + " to " + s.vehicle.server.digitalNumber + " as a signed amendment.\n\nWhat changed, and why? (recorded with it)", "");
       if (note === null) return;
       const acc = ui.roles.accreditations.find((a) => a.body === s.vehicle.server.issuingBody) || ui.roles.accreditations[0];
+      if (!(acc.permissions || []).includes("add_logbook_entries")) return say("fail", "You aren't allowed to add logbook entries -- ask your technical director.");
       const photos = await uploadPhotos(s);
       await rpc("add_record", { p_logbook: s.vehicle.server.id, p_kind: "amendment", p_body_id: acc.body, p_body: {
         cage: { pathId: s.pathId, org: s.vehicle.org, answers: s.answers }, pictures: photos.pictures, vehiclePhotos: photos.vehiclePhotos,
@@ -622,6 +643,10 @@
     const items = readiness();
     const ready = items.every((i) => i.done);
     const suggestion = suggestedNumber(rc);
+    const body = rc.vehicle && rc.vehicle.org;
+    if (body && body !== "none" && ui.roles.accreditations.some((a) => a.body === body) && !can(body, "issue_logbooks")) {
+      return [desc("You aren't allowed to issue " + bodyName(body) + " logbooks -- a scrutineer who is issues it (Export to a file to hand it over), or ask your technical director.")];
+    }
     return [
       h("ul", { class: "account-checklist" }, items.map((i) => h("li", { class: i.done ? "done" : "todo" }, [
         h("span", { class: "account-check-mark" }, [i.done ? "✓" : "✗"]), " " + i.label + (i.missing ? " -- " + i.missing + " item" + (i.missing === 1 ? "" : "s") + " to answer" : ""),
@@ -949,11 +974,16 @@
     const editable = !!myRole && !over && !finished;
     const c = TechSheet.counts(t.template, t.variant, t.inspection);
     const declaredBy = t.competitor && (t.competitor.by || t.competitor.file);
+    // Passed / Failed: signed under the event's body's accreditation (else the person's first),
+    // which needs sign_off_tech_sheets -- like the server.
+    const signer = ui.roles.accreditations.find((a) => a.body === ev.body_id) || ui.roles.accreditations[0];
+    const canSign = !!signer && (signer.permissions || []).includes("sign_off_tech_sheets");
     // Save / Finish / Close: at the top and at the bottom of a long sheet.
     const mainButtons = () => [
       editable ? btn("Save", () => saveTechSheet(null), "small secondary") : null,
-      editable && open ? btn("Finish: Passed", () => saveTechSheet("pass"), "small") : null,
-      editable && open ? btn("Finish: Failed", () => saveTechSheet("fail"), "small secondary") : null,
+      editable && open && canSign ? btn("Finish: Passed", () => saveTechSheet("pass"), "small") : null,
+      editable && open && canSign ? btn("Finish: Failed", () => saveTechSheet("fail"), "small secondary") : null,
+      editable && open && !canSign ? h("span", { class: "element-desc" }, ["Fill it in and save -- a scrutineer allowed to sign off records Passed / Failed."]) : null,
     ];
     const closeButton = () => btn("Close", () => leaveTechSheet(render), "small secondary");
     return h("div", { class: "account-card", id: "techsheet-panel" }, [
@@ -976,7 +1006,7 @@
         editable, view: t.view, photoUrl: techPhotoUrl, addPhoto: addTechPhoto, lookupSticker, setVariant: (v) => { t.variant = v; }, onChange: render }),
       // (The state as opened, once the first render has filled in what's derived.)
       t.savedState == null ? void (t.savedState = sheetState(t)) : null,
-      editable && open && myRole === "chief" ? h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: t.signAsChief, onchange: (e) => { t.signAsChief = e.target.checked; } }), " Also sign as chief scrutineer"]) : null,
+      editable && open && canSign && myRole === "chief" ? h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: t.signAsChief, onchange: (e) => { t.signAsChief = e.target.checked; } }), " Also sign as chief scrutineer"]) : null,
       actions(
         ...mainButtons(),
         editable ? btn("Import the team's sheet (file)", importTeamSheet, "small secondary") : null,
@@ -1038,7 +1068,7 @@
           : voided ? " · sticker " + Stickers.fmtCode(voided.code) + " voided " + fmtDate(voided.voidedAt) + (voided.voidReason ? " (" + voided.voidReason + ")" : "")
           : why ? " · to issue its sticker: " + why : " · no sticker yet"])]),
       st ? btn("Print", () => Stickers.printDialog([st]), "small secondary") : null,
-      st ? btn("Void", () => voidSticker(st.code), "small secondary") : null,
+      st && can(st.body, "void_stickers") ? btn("Void", () => voidSticker(st.code), "small secondary") : null,
       !st && !why ? btn(voided ? "Re-issue" : "Issue sticker", issue, "small") : null,
     ]);
     const rows = gearRows.map((r) => {
@@ -1335,7 +1365,7 @@
       ]),
       withButtons && hasSheet ? btn("Tech sheet", () => openTechSheet(x), "small secondary") : null,
       x.entry.tech_status === "pending"
-        ? (withButtons && !hasSheet && x.logbook && myRole && open ? h("span", {}, [btn("Passed", () => inspect(x.entry, true), "small"), " ", btn("Failed", () => inspect(x.entry, false), "small secondary")])
+        ? (withButtons && !hasSheet && x.logbook && myRole && open && can(ev.body_id, "add_logbook_entries") ? h("span", {}, [btn("Passed", () => inspect(x.entry, true), "small"), " ", btn("Failed", () => inspect(x.entry, false), "small secondary")])
           : h("span", { class: "badge " + (isReTech(x) && !allChecked(x) ? "cond" : "info") }, [allChecked(x) ? "to sign off" : isReTech(x) ? "re-tech" : "to inspect"]))
         : h("span", { class: "badge " + (x.entry.tech_status === "passed" ? "pass" : "req") }, [x.entry.tech_status]),
     ]);
@@ -1450,7 +1480,8 @@
 
   // ---- Administration (System admins, technical directors) -----------
   const bodyForm = { id: "", name: "", note: "" };
-  const accForm = { email: "", name: "", body: "", role: "scrutineer", license: "", code: "", expires: "" };
+  // permissions: the new scrutineer's (null: the defaults the caller can grant).
+  const accForm = { email: "", name: "", body: "", role: "scrutineer", license: "", code: "", expires: "", permissions: null };
   let adminEmail = "";
   async function saveBody() {
     try { await rpc("save_body", { p_id: bodyForm.id.trim().toLowerCase(), p_name: bodyForm.name.trim(), p_number_note: bodyForm.note.trim() || null }); Object.assign(bodyForm, { id: "", name: "", note: "" }); ui.show.addBody = false; ui.show.editBody = false; say("pass", "Sanctioning body saved."); loadAll(); }
@@ -1458,8 +1489,9 @@
   }
   async function grant() {
     try {
-      await rpc("grant_accreditation", { p_email: accForm.email, p_name: accForm.name, p_body: accForm.body, p_role: accForm.role, p_license: accForm.license || null, p_code: accForm.code || null, p_expires: accForm.expires || null });
-      Object.assign(accForm, { email: "", name: "", license: "", code: "", expires: "" });
+      await rpc("grant_accreditation", { p_email: accForm.email, p_name: accForm.name, p_body: accForm.body, p_role: accForm.role, p_license: accForm.license || null, p_code: accForm.code || null, p_expires: accForm.expires || null,
+        p_permissions: accForm.role === "scrutineer" ? accForm.permissions : null });
+      Object.assign(accForm, { email: "", name: "", license: "", code: "", expires: "", permissions: null });
       ui.show.addAcc = false;
       say("pass", "Accreditation saved."); loadAll();
     } catch (e) { fail(e); }
@@ -1479,6 +1511,21 @@
       say("pass", a.name + "'s license " + (d ? "now expires " + fmtDate(d) : "no longer expires") + ".");
       loadAll();
     } catch (e) { fail(e); }
+  }
+  async function savePermissions(a, perms) {
+    try {
+      await rpc("set_accreditation_permissions", { p_id: a.id, p_permissions: perms });
+      ui.permEdit = null;
+      say("pass", a.name + "'s permissions saved.");
+      loadAll();
+    } catch (e) { fail(e); }
+  }
+  // The permission checkboxes: the ones the caller doesn't hold can't be ticked (a System admin holds them all).
+  function permissionBoxes(body, perms, onChange) {
+    return h("div", { class: "account-permissions" }, PERMISSIONS.map(([p, label]) => h("label", { class: "account-checks", title: can(body, p) ? "" : "You don't hold this permission, so you can't grant it" }, [
+      h("input", { type: "checkbox", checked: perms.includes(p), disabled: !can(body, p), onchange: (e) => onChange(e.target.checked ? perms.concat(p) : perms.filter((x) => x !== p)) }),
+      " " + label,
+    ])));
   }
   async function setAccState(a, state) {
     const verb = { disabled: "Disable", deleted: "Delete", active: "Re-enable" }[state];
@@ -1604,9 +1651,9 @@
   function accStatus(x) {
     return x.deleted_at ? "deleted" : x.disabled_at ? "disabled" : x.license_expires && x.license_expires < isoDay(0) ? "license expired" : "active";
   }
+  // The bodies the caller organizes, or whose scrutineers they manage (any of MANAGE).
   function manageableBodies() {
-    const tdBodies = ui.roles.accreditations.filter((a) => a.role === "technical_director").map((a) => a.body);
-    return ui.roles.admin ? ui.bodies : ui.bodies.filter((b) => tdBodies.includes(b.id));
+    return ui.roles.admin ? ui.bodies : ui.bodies.filter((b) => isOrganizer(b.id) || MANAGE.some((p) => can(b.id, p)));
   }
   function renderBodies() {
     const admin = ui.roles.admin;
@@ -1668,44 +1715,68 @@
         h("div", { class: "field-row" }, [field("How it numbers logbooks", input({ value: bodyForm.note, placeholder: "e.g. scrutineer code + last 6 of the VIN" }, (v) => { bodyForm.note = v; }))]),
         actions(btn("Save body", saveBody), btn("Cancel", () => toggle("editBody", false), "secondary")),
       ]) : null,
-      tabs([["scrutineers", "Scrutineers (" + people.filter((a) => !a.deleted_at).length + ")"], ["techsheets", "Tech sheets (" + bodyTemplates(b.id).length + ")"]], ui.bodyTab, (t) => { ui.bodyTab = t; render(); }),
+      // Tech sheets: the body's organizers (technical directors, System admins).
+      isOrganizer(b.id) ? tabs([["scrutineers", "Scrutineers (" + people.filter((a) => !a.deleted_at).length + ")"], ["techsheets", "Tech sheets (" + bodyTemplates(b.id).length + ")"]], ui.bodyTab, (t) => { ui.bodyTab = t; render(); }) : null,
     ];
-    if (ui.bodyTab === "techsheets") {
+    if (ui.bodyTab === "techsheets" && isOrganizer(b.id)) {
       out.push(renderBodyTechSheets(b));
       return out;
     }
-    out.push(actions(btn(admin ? "Add a technical director or scrutineer" : "Add a scrutineer", () => toggle("addAcc"), ui.show.addAcc ? "small" : "small secondary")));
-    if (ui.show.addAcc) {
-      accForm.body = b.id;
+    const editPerms = can(b.id, "edit_permissions");
+    if (can(b.id, "add_scrutineers")) out.push(actions(btn(admin ? "Add a technical director or scrutineer" : "Add a scrutineer", () => toggle("addAcc"), ui.show.addAcc ? "small" : "small secondary")));
+    if (ui.show.addAcc && can(b.id, "add_scrutineers")) {
+      if (accForm.body !== b.id) { accForm.body = b.id; accForm.permissions = null; }
       const set = (k) => (v) => { accForm[k] = v; };
+      // A new scrutineer's permissions: the defaults the caller holds, unless changed here.
+      const perms = accForm.permissions || DEFAULT_SCRUTINEER.filter((p) => can(b.id, p));
       out.push(h("div", { class: "account-card" }, [
         h("div", { class: "account-card-title" }, [(admin ? "Add a technical director or scrutineer" : "Add a scrutineer") + " for " + b.name]),
         h("div", { class: "field-row" }, [field("Name", input({ value: accForm.name }, set("name"))), field("Email", input({ value: accForm.email, inputmode: "email" }, set("email")))]),
         h("div", { class: "field-row" }, [
-          admin ? field("Role", select([["scrutineer", "Scrutineer"], ["technical_director", "Technical director"]], accForm.role, (v) => { accForm.role = v; })) : null,
+          admin ? field("Role", select([["scrutineer", "Scrutineer"], ["technical_director", "Technical director"]], accForm.role, (v) => { accForm.role = v; render(); })) : null,
           field("License number", input({ value: accForm.license }, set("license"))),
           field("License expires (optional)", dateInput(accForm.expires, set("expires"))),
           field("Scrutineer code", input({ value: accForm.code, placeholder: "e.g. ARA 2-digit number" }, set("code"))),
         ]),
+        accForm.role === "scrutineer" && editPerms ? [desc("Permissions (a technical director holds them all):"),
+          permissionBoxes(b.id, perms, (next) => { accForm.permissions = next; render(); })] : null,
+        accForm.role === "scrutineer" && !editPerms ? desc("They get the standard scrutineer permissions you hold: " + perms.map((p) => PERMISSIONS.find(([k]) => k === p)[1].toLowerCase()).join(", ") + ".") : null,
         actions(btn("Save", grant), btn("Cancel", () => toggle("addAcc", false), "secondary")),
       ]));
     }
+    const permSummary = (a) => {
+      if (a.role === "technical_director") return "all";
+      const p = accPermissions(a);
+      return !a.permissions ? "standard (" + p.length + ")" : p.length + " of " + ALL_PERMISSIONS.length;
+    };
     out.push(people.length ? h("table", { class: "account-table" }, [
-      h("tr", {}, ["Name", "Email", "Role", "License", "Expires", "Code", "Status", ""].map((t) => h("th", {}, [t]))),
+      h("tr", {}, ["Name", "Email", "Role", "License", "Expires", "Code", "Permissions", "Status", ""].map((t) => h("th", {}, [t]))),
       people.map((a) => {
-        const canManage = admin || a.role === "scrutineer";
+        const changeable = canChange(a);
         const st = accStatus(a);
-        return h("tr", {}, [
+        const editing = ui.permEdit && ui.permEdit.id === a.id;
+        const row = h("tr", {}, [
           h("td", {}, [a.name]), h("td", {}, [a.email]), h("td", {}, [a.role === "technical_director" ? "Technical director" : "Scrutineer"]),
           h("td", {}, [a.license_number || ""]), h("td", {}, [a.license_expires ? fmtDate(a.license_expires) : "—"]), h("td", {}, [a.scrutineer_code || ""]),
+          h("td", { title: accPermissions(a).map((p) => PERMISSIONS.find(([k]) => k === p)[1]).join("\n") }, [permSummary(a)]),
           h("td", { class: st === "active" ? "" : "account-warn" }, [st]),
-          h("td", { class: "account-row-actions" }, canManage ? [
-            btn(a.license_expires ? "Renew" : "Set expiry", () => renew(a), "small secondary"),
+          h("td", { class: "account-row-actions" }, changeable ? [
+            can(b.id, "renew_licenses") ? btn(a.license_expires ? "Renew" : "Set expiry", () => renew(a), "small secondary") : null,
+            editPerms && a.role !== "technical_director" ? btn("Permissions", () => { ui.permEdit = editing ? null : { id: a.id, perms: accPermissions(a).slice() }; render(); }, editing ? "small" : "small secondary") : null,
             st === "disabled" || st === "deleted"
-              ? btn("Re-enable", () => setAccState(a, "active"), "small secondary")
-              : [btn("Disable", () => setAccState(a, "disabled"), "small secondary"), btn("Delete", () => setAccState(a, "deleted"), "small secondary")],
+              ? (can(b.id, st === "deleted" ? "delete_scrutineers" : "renew_licenses") ? btn("Re-enable", () => setAccState(a, "active"), "small secondary") : null)
+              : [can(b.id, "renew_licenses") ? btn("Disable", () => setAccState(a, "disabled"), "small secondary") : null,
+                can(b.id, "delete_scrutineers") ? btn("Delete", () => setAccState(a, "deleted"), "small secondary") : null],
           ] : []),
         ]);
+        if (!editing) return row;
+        return [row, h("tr", {}, [h("td", { colspan: "9" }, [
+          desc(a.name + "'s permissions:"),
+          permissionBoxes(b.id, ui.permEdit.perms, (next) => { ui.permEdit.perms = next; render(); }),
+          actions(btn("Save permissions", () => savePermissions(a, ui.permEdit.perms), "small"),
+            btn("Standard scrutineer", () => savePermissions(a, null), "small secondary"),
+            btn("Cancel", () => { ui.permEdit = null; render(); }, "small secondary")),
+        ])])];
       }),
     ]) : desc("No scrutineers yet."));
     return out;
@@ -1793,7 +1864,7 @@
     if (!v.data) return h("p", { class: "verdict fail" }, ["There's no sticker " + Stickers.fmtCode(v.code) + " -- check the code printed under the QR code."]);
     const d = v.data;
     return Stickers.view(d, { photoUrl: techPhotoUrl, standardLabel: stickerStandard, lines: TechSheet.lines,
-      onVoid: d.staff ? () => voidSticker(d.code) : null,
+      onVoid: d.staff && ui.roles && can(d.body, "void_stickers") ? () => voidSticker(d.code) : null,
       onOpenLogbook: d.logbook && d.logbook.publicToken ? () => { ui.stickerView = null; loadPublic(d.logbook.publicToken); } : null });
   }
 
@@ -1805,8 +1876,7 @@
   //   item: { category, owner, competitor (an application's gear and photos, as a team's line),
   //           inspection, view, replaces (the sticker read), application (its id) }
   function annualBodies() {
-    const mine = ui.roles.accreditations.map((a) => a.body);
-    return ui.bodies.filter((b) => !b.disabled_at && !b.deleted_at && (ui.roles.admin || mine.includes(b.id)));
+    return ui.bodies.filter((b) => !b.disabled_at && !b.deleted_at && can(b.id, "issue_annual_stickers"));
   }
   function annualState() {
     if (!ui.annual) {
@@ -1904,7 +1974,7 @@
           h("span", { class: "account-entry-main" }, [h("strong", {}, [Stickers.fmtCode(s.code)]),
             h("span", { class: "element-desc" }, [" · " + [Stickers.GEAR_LABEL[(s.snapshot || {}).category], (s.snapshot || {}).driver, fmtDate(s.issuedAt), s.voidedAt ? "void" : ""].filter(Boolean).join(" · ")])]),
           !s.voidedAt ? btn("Print", () => Stickers.printDialog([s]), "small secondary") : null,
-          !s.voidedAt ? btn("Void", () => voidSticker(s.code).then(loadAnnual), "small secondary") : null,
+          !s.voidedAt && can(s.body, "void_stickers") ? btn("Void", () => voidSticker(s.code).then(loadAnnual), "small secondary") : null,
         ])) : desc("None issued outside an event for this season yet."),
       ]));
       return out;
@@ -1944,7 +2014,7 @@
     event: { title: "Scrutineering", text: "At an event: each car's tech sheet, its inspection and sign-off, and what's left to inspect." },
     events: { title: "Event admin", text: "Organize events: create them, their staff and tech sheets, and their competitors (MotorsportReg import)." },
     annual: { title: "Annual safety stickers", text: "Season stickers for helmets, HANS, seats, fire extinguishers and suppression systems -- outside an event, from a competitor's application or last season's sticker." },
-    bodies: { title: "Sanctioning bodies", text: "Technical directors, scrutineers and their licenses, and each body's tech sheets." },
+    bodies: { title: "Sanctioning bodies, scrutineers and tech sheets", text: "Technical directors, scrutineers, their licenses and permissions, and each body's tech sheets." },
   };
   // The other site's address (locally: this page with ?site=).
   function otherSite() {
@@ -1957,9 +2027,11 @@
     const r = ui.roles;
     const staff = r && r.accreditations.length > 0;
     const organizer = r && (r.admin || r.accreditations.some((a) => a.role === "technical_director"));
+    // Sanctioning bodies: organizers, and whoever manages a body's scrutineers.
+    const manager = organizer || MANAGE.some(canAnywhere);
     return SITE === "scrutineering"
-      ? (staff ? ["event", "annual"] : []).concat(organizer ? ["events", "bodies"] : [])
-      : ["create", "library"].concat(organizer ? ["bodies"] : []);
+      ? (staff ? ["event"] : []).concat(canAnywhere("issue_annual_stickers") ? ["annual"] : [], organizer ? ["events"] : [], manager ? ["bodies"] : [])
+      : ["create", "library"].concat(manager ? ["bodies"] : []);
   }
   // The home screen shows the modes only; Event and Admin modes don't use
   // the logbook editor, and the library starts on its list -- each hides it.
