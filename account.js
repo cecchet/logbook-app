@@ -852,7 +852,7 @@
         carNumber: t.entry.car_number, template: t.templateId || undefined, header: t.header, variant: t.variant,
         // The team's part only when imported here (a file); otherwise it stays as they submitted it.
         competitor: t.competitorImported ? t.competitor : undefined, seenSubmittedAt: t.seenSubmittedAt,
-        inspection: { items: t.inspection.items, corrections: t.inspection.corrections || "" },
+        inspection: { items: t.inspection.items, corrections: t.inspection.corrections || "", pictures: t.inspection.pictures || {} },
         finish: finish || undefined, signAs: finish && t.signAsChief ? "chief" : undefined,
       } });
       t.competitorImported = false;
@@ -999,23 +999,30 @@
     if (!t.sheetId) return h("div", { class: "account-card" }, [title, desc("Save the sheet to issue its stickers.")]);
     const valid = (t.stickers || []).filter((s) => !s.voidedAt);
     const declared = (t.competitor && t.competitor.items) || {};
-    const row = (label, st, why, issue) => h("div", { class: "account-entry" }, [
+    // A valid sticker: print it, or void it. Re-issuing comes once it's void (lost, damaged,
+    // the item failed) -- the last voided one is shown until then.
+    const lastVoided = (match) => (t.stickers || []).filter((s) => s.voidedAt && match(s)).pop();
+    const row = (label, st, voided, why, issue) => h("div", { class: "account-entry" }, [
       h("span", { class: "account-entry-main" }, [h("strong", {}, [label]),
-        h("span", { class: "element-desc" }, [st ? " · sticker " + Stickers.fmtCode(st.code) + ", " + fmtDate(st.issuedAt) : why ? " · to issue its sticker: " + why : " · no sticker yet"])]),
+        h("span", { class: "element-desc" }, [st ? " · sticker " + Stickers.fmtCode(st.code) + ", " + fmtDate(st.issuedAt)
+          : voided ? " · sticker " + Stickers.fmtCode(voided.code) + " voided " + fmtDate(voided.voidedAt) + (voided.voidReason ? " (" + voided.voidReason + ")" : "")
+          : why ? " · to issue its sticker: " + why : " · no sticker yet"])]),
       st ? btn("Print", () => Stickers.printDialog([st]), "small secondary") : null,
-      !why ? btn(st ? "Re-issue" : "Issue sticker", issue, st ? "small secondary" : "small") : null,
       st ? btn("Void", () => voidSticker(st.code), "small secondary") : null,
+      !st && !why ? btn(voided ? "Re-issue" : "Issue sticker", issue, "small") : null,
     ]);
     const rows = gearRows.map((r) => {
       const res = t.inspection.items[r.key] || {};
       const photos = [].concat((declared[r.key] || {}).photos || [], res.photos || []).filter((p) => !(res.removedPhotos || []).includes(p.sha256));
-      const st = valid.find((s) => s.kind === "gear" && s.item === r.key);
+      const mine = (s) => s.kind === "gear" && s.item === r.key;
+      const st = valid.find(mine);
       const why = res.result !== "pass" ? "mark it Pass" : !photos.some((p) => p.kind !== "tag") ? "add a photo of it" : !photos.some((p) => p.kind === "tag") ? "add a photo of its tag (🏷️)" : null;
-      return row(r.label, st, why, () => issueSticker({ kind: "gear", techSheet: t.sheetId, item: r.key, label: r.label }, loadSheetStickers, st));
+      return row(r.label, st, st ? null : lastVoided(mine), why, () => issueSticker({ kind: "gear", techSheet: t.sheetId, item: r.key, label: r.label }, loadSheetStickers));
     });
-    const carSt = valid.find((s) => s.kind === "car");
-    rows.push(row("Car #" + t.entry.car_number + " tech pass", carSt, t.status === "passed" ? null : "finish the sheet as Passed",
-      () => issueSticker({ kind: "car", techSheet: t.sheetId }, loadSheetStickers, carSt)));
+    const isCar = (s) => s.kind === "car";
+    const carSt = valid.find(isCar);
+    rows.push(row("Car #" + t.entry.car_number + " tech pass", carSt, carSt ? null : lastVoided(isCar), t.status === "passed" ? null : "finish the sheet as Passed",
+      () => issueSticker({ kind: "car", techSheet: t.sheetId }, loadSheetStickers)));
     return h("div", { class: "account-card" }, [
       title,
       desc("Printed QR codes: a gear sticker goes on the helmet, HANS or seat (scanning it shows its photos and certification); the tech pass goes on the car. Save the sheet before issuing."),

@@ -361,16 +361,46 @@
           onchange: () => { opts.setVariant(v.id); opts.onChange(); } }), " " + v.label + " ",
       ]))]));
     }
-    // The team's photos of the car and crew (PassTech), to know them at a glance.
+    // Photos of the car and crew, to know them at a glance: the team's (PassTech) and the
+    // scrutineer's own (inspection.pictures: { car: [{ sha256 }], driver: [...], codriver: [...] }).
     const pics = (opts.competitor && opts.competitor.pictures) || {};
-    const slots = [["Car", pics.car || []], ["Driver", pics.driver ? [pics.driver] : []], ["Co-driver", pics.codriver ? [pics.codriver] : []]].filter(([, l]) => l.length);
+    const own = insp.pictures = insp.pictures || {};
+    const asList = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+    const withCodriver = hasCodriver(t, opts.variant || ((t.variants || [])[0] || {}).id || null);
+    const canAdd = ed && !!opts.addPhoto;
+    const slots = [["car", "Car"], ["driver", "Driver"]].concat(withCodriver ? [["codriver", "Co-driver"]] : [])
+      .map(([id, label]) => ({ id, label, team: asList(pics[id]), mine: asList(own[id]) }))
+      .filter((s) => s.team.length || s.mine.length || canAdd);
     if (slots.length) {
       // One group in the viewer: the car's, then the crew's.
-      const crew = slots.flatMap(([, l]) => l.map((p) => Object.assign({ kind: "item" }, p)));
-      let n = 0;
-      out.push(h("div", { class: "techsheet-pictures" }, slots.map(([label, list]) => h("figure", {}, [
-        h("div", { class: "techsheet-pictures-row" }, list.map(() => { const p = crew[n++]; return photo(p, opts, crew); })),
-        h("figcaption", {}, [label]),
+      const crew = [];
+      const shown = slots.map((s) => ({ s,
+        team: s.team.map((p) => { const q = Object.assign({ kind: "item" }, p); crew.push(q); return q; }),
+        mine: s.mine.map((p, i) => { const q = Object.assign({ kind: "item" }, p); crew.push(q); return { q, i }; }) }));
+      const addButton = (s) => {
+        const input = h("input", { type: "file", accept: "image/*", multiple: true, class: "techsheet-file", onchange: async () => {
+          const files = [...input.files];
+          input.value = "";
+          for (const f of files) {
+            try {
+              const already = asList(own[s.id]).concat(s.team);
+              if (await looksLikeOneOf(f, already, opts) && !confirm("This photo looks like one already there. Add it anyway?")) continue;
+              const sha = await opts.addPhoto(f);
+              if (!already.some((p) => p.sha256 === sha)) own[s.id] = asList(own[s.id]).concat({ sha256: sha });
+            } catch (e) { alert("Couldn't add the photo: " + (e.message || e)); }
+          }
+          opts.onChange();
+        } });
+        return h("label", { class: "btn small secondary techsheet-add-photo", title: "Add a photo of the " + s.label.toLowerCase() }, ["📷 Add", input]);
+      };
+      out.push(h("div", { class: "techsheet-pictures" }, shown.map(({ s, team, mine }) => h("figure", {}, [
+        h("div", { class: "techsheet-pictures-row" }, [
+          team.map((q) => photo(q, opts, crew)),
+          mine.map(({ q, i }) => h("span", { class: "techsheet-own-photo" }, [photo(q, opts, crew),
+            ed ? h("button", { type: "button", class: "techsheet-photo-x", title: "Remove", onclick: () => { own[s.id] = asList(own[s.id]).filter((_, j) => j !== i); opts.onChange(); } }, ["×"]) : null])),
+          canAdd ? addButton(s) : null,
+        ]),
+        h("figcaption", {}, [s.label]),
       ]))));
     }
     // Header.

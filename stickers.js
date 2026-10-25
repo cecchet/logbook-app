@@ -96,7 +96,7 @@
     { id: "label-2in", label: "Label printer, 2 in square labels", page: "2in 2in", size: "1.85in" },
     { id: "label-1in", label: "Label printer, 1 in square labels (small, for a helmet)", page: "1in 1in", size: "0.94in" },
     { id: "sheet", label: "Letter sheet of 1.5 in stickers to cut out", page: "letter", size: "1.5in", sheet: true },
-    { id: "images", label: "Images (PNG) for a phone label app", images: true },
+    { id: "images", label: "Images (PNG): save to disk, or share to a label app", images: true },
   ];
   const FORMAT_KEY = "sticker-format";
   const savedFormat = () => { try { return localStorage.getItem(FORMAT_KEY) || "label-62"; } catch (e) { return "label-62"; } };
@@ -118,8 +118,12 @@
     w.document.close();
   }
 
-  // Each sticker as a PNG (about 1000 px): shared to a label app on a phone, else downloaded.
-  async function images(stickers) {
+  // Whether this browser shares files (a phone's share sheet, Windows' Share): "Share" is offered then.
+  const canShareFiles = () => {
+    try { return !!(navigator.canShare && navigator.canShare({ files: [new File([""], "sticker.png", { type: "image/png" })] })); } catch (e) { return false; }
+  };
+  // Each sticker as a PNG (about 1000 px): saved to disk ("save"), or shared ("share") to a label app.
+  async function images(stickers, how) {
     const files = [];
     for (const st of stickers) {
       const el = await svg(st);
@@ -132,8 +136,9 @@
       const blob = await new Promise((resolve) => c.toBlob(resolve, "image/png"));
       files.push(new File([blob], "sticker-" + st.code + ".png", { type: "image/png" }));
     }
-    if (navigator.canShare && navigator.canShare({ files })) {
-      try { await navigator.share({ files, title: "Tech stickers" }); return; } catch (e) { if (e && e.name === "AbortError") return; }
+    if (how === "share") {
+      try { await navigator.share({ files, title: "Tech stickers" }); } catch (e) { if (!e || e.name !== "AbortError") throw new Error("Couldn't share: " + ((e && e.message) || e) + " -- use Save instead."); }
+      return;
     }
     files.forEach((f) => {
       const a = h("a", { href: URL.createObjectURL(f), download: f.name });
@@ -150,27 +155,38 @@
     stickers.forEach((st) => svg(st).then((el) => preview.append(h("figure", {}, [el, h("figcaption", {}, [title(st)])]))).catch(() => {}));
     const error = h("p", { class: "verdict fail", hidden: true });
     const close = () => overlay.remove();
-    const go = async () => {
+    // how: "print", or for images "save" / "share".
+    const go = async (how) => {
       try { localStorage.setItem(FORMAT_KEY, format); } catch (e) { /* not kept */ }
       const fmt = FORMATS.find((f) => f.id === format);
       try {
-        if (fmt.images) await images(stickers); else await print(stickers, fmt);
+        if (fmt.images) await images(stickers, how); else await print(stickers, fmt);
         close();
       } catch (e) { error.hidden = false; error.textContent = e.message || String(e); }
     };
+    // The buttons for the format picked: Print, or Save / Share for images.
+    const buttons = h("div", { class: "account-actions" });
+    const drawButtons = () => {
+      const fmt = FORMATS.find((f) => f.id === format) || FORMATS[0];
+      const n = stickers.length > 1 ? " " + stickers.length + " images" : " image";
+      buttons.replaceChildren(
+        ...(fmt.images
+          ? [h("button", { type: "button", class: "btn small", onclick: () => go("save") }, ["Save" + n + " to disk"]),
+             canShareFiles() ? h("button", { type: "button", class: "btn small secondary", onclick: () => go("share") }, ["Share" + n]) : ""]
+          : [h("button", { type: "button", class: "btn small", onclick: () => go("print") }, ["Print"])]),
+        h("button", { type: "button", class: "btn small secondary", onclick: close }, ["Cancel"]));
+    };
+    drawButtons();
     const overlay = h("div", { class: "sticker-dialog-backdrop", onclick: (e) => { if (e.target === overlay) close(); } }, [
       h("div", { class: "sticker-dialog", role: "dialog", "aria-label": "Print stickers" }, [
         h("h3", {}, [stickers.length === 1 ? "Print the sticker" : "Print " + stickers.length + " stickers"]),
         preview,
         h("div", { class: "sticker-formats" }, FORMATS.map((f) => h("label", {}, [
-          h("input", { type: "radio", name: "sticker-format", checked: f.id === format, onchange: () => { format = f.id; } }), " " + f.label,
+          h("input", { type: "radio", name: "sticker-format", checked: f.id === format, onchange: () => { format = f.id; drawButtons(); } }), " " + f.label,
         ]))),
-        h("p", { class: "element-desc" }, ["A label printer prints from the print dialog: on a laptop through its driver, on a phone through AirPrint (iPhone) or its maker's print plugin (Android) -- pick the label size there too. Bluetooth label makers that only print from their own app: use Images, then open them in that app."]),
+        h("p", { class: "element-desc" }, ["A label printer prints from the print dialog: on a laptop through its driver, on a phone through AirPrint (iPhone) or its maker's print plugin (Android) -- pick the label size there too. Label makers that only print from their own app: save or share the images, then open them in that app."]),
         error,
-        h("div", { class: "account-actions" }, [
-          h("button", { type: "button", class: "btn small", onclick: go }, ["Print"]),
-          h("button", { type: "button", class: "btn small secondary", onclick: close }, ["Cancel"]),
-        ]),
+        buttons,
       ]),
     ]);
     document.body.append(overlay);
