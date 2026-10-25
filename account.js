@@ -1924,7 +1924,6 @@
     const a = ui.annual, it = a.item;
     const res = it.inspection.items[it.category] || {};
     const dec = ((it.competitor || {}).items || {})[it.category] || {};
-    if (res.result !== "pass") return say("fail", "Check the gear and mark it Pass first.");
     const removed = res.removedPhotos || [];
     const photos = (dec.photos || []).filter((p) => !removed.includes(p.sha256)).concat(res.photos || []);
     if (!photos.some((p) => p.kind === "tag") || !photos.some((p) => p.kind !== "tag")) return say("fail", "A sticker needs a photo of the whole item and one of its tag or label.");
@@ -1938,10 +1937,12 @@
       loadAnnual();
     } catch (e) { fail(e); }
   }
+  // Whether it was declined (not when the scrutineer cancels, or it fails).
   async function annualDecline(app) {
     const note = prompt("Decline this application -- why? (the competitor sees it)", "");
-    if (!note || !note.trim()) return;
-    try { await rpc("decline_sticker_application", { p_id: app.id, p_note: note.trim() }); loadAnnual(); } catch (e) { fail(e); }
+    if (!note || !note.trim()) return false;
+    try { await rpc("decline_sticker_application", { p_id: app.id, p_note: note.trim() }); say("pass", "Application declined."); loadAnnual(); return true; }
+    catch (e) { fail(e); return false; }
   }
   function renderAnnual() {
     const a = annualState();
@@ -1996,8 +1997,11 @@
       h("div", { class: "field-row" }, [field("Owner (shown to scrutineers only)", input({ value: it.owner, placeholder: "e.g. the driver's name" }, (v) => { it.owner = v; }))]),
       TechSheet.sheet({ template: tpl, variant: null, header: {}, competitor: it.competitor, inspection: it.inspection, editable: true, view: it.view, bare: true,
         photoUrl: techPhotoUrl, addPhoto: addTechPhoto, lookupSticker, setVariant: () => {}, onChange: render }),
-      desc("Check the item against its details and photos -- the sticker needs a photo of the whole item and one of its tag or label -- then mark it Pass and issue."),
-      actions(btn("Issue the sticker", annualIssue, "small"), btn("Cancel", () => { a.item = null; render(); }, "small secondary")),
+      desc("Check the item in hand against its details and photos -- the sticker needs a photo of the whole item and one of its tag or label -- then issue its sticker" +
+        (it.application ? ", or decline the application, saying why." : ".")),
+      actions(btn("Issue the sticker", annualIssue, "small"),
+        it.application ? btn("Decline", () => annualDecline({ id: it.application }).then((done) => { if (done && a.item === it) { a.item = null; render(); } }), "small secondary") : null,
+        btn("Cancel", () => { a.item = null; render(); }, "small secondary")),
     ]));
     return out;
   }

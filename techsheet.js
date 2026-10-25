@@ -483,7 +483,8 @@
       };
       const choice = (result, label, cls) => h("button", { type: "button", disabled: !ed,
         class: "techsheet-result " + cls + (res.result === result ? " on" : ""), onclick: (e) => { e.stopPropagation(); set(result); } }, [label]);
-      const results = h("div", { class: "techsheet-results" }, [
+      // (None in the bare one-item view: an annual sticker is issued or declined, not passed.)
+      const results = opts.bare ? null : h("div", { class: "techsheet-results" }, [
         choice("pass", "Pass", "pass"), choice("fail", "Fail", "fail"),
         r.item.allowNA || r.item.checkedBy === "team" ? choice("na", "N/A", "na") : null,
       ]);
