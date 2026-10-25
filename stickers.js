@@ -45,8 +45,10 @@
     return qrLoading;
   }
 
-  const GEAR_LABEL = { helmet: "Helmet", hnr: "HANS / head & neck restraint", seat: "Seat" };
-  const GEAR_SHORT = { helmet: "HELMET", hnr: "HANS", seat: "SEAT" };
+  const GEAR_LABEL = { helmet: "Helmet", hnr: "HANS / head & neck restraint", seat: "Seat", fire_extinguisher: "Fire extinguisher", fire_suppression: "Fire suppression system" };
+  const GEAR_SHORT = { helmet: "HELMET", hnr: "HANS", seat: "SEAT", fire_extinguisher: "EXTINGUISHER", fire_suppression: "SUPPRESSION" };
+  // The gear categories a sticker can go on (the server's sticker_gear()).
+  const GEAR = Object.keys(GEAR_LABEL);
   const fmtCode = (c) => c.slice(0, 4) + "-" + c.slice(4);
   const day = (iso) => (iso ? String(iso).slice(0, 10) : "");
   const fmtDate = (d) => (d ? new Date(String(d).length === 10 ? d + "T12:00:00" : d).toLocaleDateString() : "");
@@ -63,8 +65,9 @@
     if (st.kind === "car") return "TECH PASSED · #" + (snap.carNumber || "");
     return "LOGBOOK · " + (snap.digitalNumber || "");
   }
+  // The body and when it's good for: a gear sticker's season ("ARA · 2026"), else the day it was issued.
   function footer(st) {
-    return [(st.body || "").toUpperCase(), day(st.issuedAt)].filter(Boolean).join(" · ");
+    return [(st.body || "").toUpperCase(), st.kind === "gear" && st.season ? String(st.season) : day(st.issuedAt)].filter(Boolean).join(" · ");
   }
 
   // The sticker, 100 x 100 units: the QR code, then what it's for, its code, the body and date.
@@ -200,8 +203,10 @@
     const valid = data.status === "valid";
     const out = [];
     out.push(h("div", { class: "sticker-status " + (valid ? "valid" : "void") }, [
-      h("strong", {}, [valid ? "VALID" : "VOID"]), " sticker " + fmtCode(data.code),
-      valid ? null : " -- " + (data.voidReason === "replaced" && data.replacedBy ? "replaced by sticker " + fmtCode(data.replacedBy) : data.voidReason || "voided") + (data.voidedAt ? " (" + fmtDate(data.voidedAt) + ")" : ""),
+      h("strong", {}, [valid ? "VALID" : data.status === "expired" ? "EXPIRED" : "VOID"]), " sticker " + fmtCode(data.code),
+      data.kind === "gear" && data.season ? " -- " + (data.bodyName || (data.body || "").toUpperCase()) + " " + data.season + " season" : null,
+      data.status === "expired" ? (data.kind === "gear" ? " (over)" : " -- for an event that's over") : null,
+      data.status === "void" ? " -- " + (data.voidReason === "replaced" && data.replacedBy ? "replaced by sticker " + fmtCode(data.replacedBy) : data.voidReason || "voided") + (data.voidedAt ? " (" + fmtDate(data.voidedAt) + ")" : "") : null,
     ]));
     const who = [data.inspector && data.inspector.name ? "Inspected by " + data.inspector.name + (data.inspector.license ? " (" + data.inspector.license + ")" : "") : "Issued",
       data.bodyName, "on " + fmtDate(data.issuedAt)].filter(Boolean).join(" · ");
@@ -219,12 +224,16 @@
         (snap.carNumber ? ", car #" + snap.carNumber : "")]));
       if (snap.driver) out.push(h("p", { class: "element-desc" }, ["Worn by " + snap.driver]));
       if ((snap.photos || []).length) out.push(photos(snap.photos));
+      (g.extinguisherUnits || []).forEach((u, i) => out.push(h("p", { class: "element-desc" }, [(g.extinguisherUnits.length > 1 ? "Extinguisher " + (i + 1) + ": " : "") +
+        [u.classARating ? u.classARating + "-A" : "", u.bcRating ? u.bcRating + "-B:C" : "", u.weightLbs ? u.weightLbs + " lb" : "",
+          u.manufactureDate ? "made " + u.manufactureDate : "", u.certificationDueDate ? "service due " + u.certificationDueDate : ""].filter(Boolean).join(" · ")])));
       const certs = (g.certifications || []).filter((c) => c.standardId);
       out.push(h("div", { class: "sticker-certs" }, certs.length ? certs.map((c) => h("div", { class: "sticker-cert" }, [
         h("strong", {}, [c.customStandardLabel || (opts.standardLabel ? opts.standardLabel(snap.category, c.standardId) : c.standardId)]),
         h("span", {}, [[c.homologationNumber ? "homologation " + c.homologationNumber : null, c.serialNumber ? "serial " + c.serialNumber : null,
-          c.labelDate ? (c.dateType === "recertification" ? "recertified " : "label date ") + c.labelDate : null, c.tagExpirationDate ? "tag expires " + c.tagExpirationDate : null].filter(Boolean).join(" · ")]),
-      ])) : [h("p", { class: "element-desc" }, ["No certification recorded."])]));
+          c.labelDate ? (c.dateType === "recertification" ? "recertified " : "label date ") + c.labelDate : null, c.tagExpirationDate ? "tag expires " + c.tagExpirationDate : null,
+          c.nextServiceDate ? "service due " + c.nextServiceDate : null].filter(Boolean).join(" · ")]),
+      ])) : (g.extinguisherUnits || []).length ? [] : [h("p", { class: "element-desc" }, ["No certification recorded."])]));
       if (g.helmetType || g.seatMounting) out.push(h("p", { class: "element-desc" }, [[g.helmetType === "full_face" ? "Full face" : g.helmetType === "open_face" ? "Open face" : "", g.seatMounting === "rails" ? "On rails" : g.seatMounting === "fixed" ? "Fixed mount" : ""].filter(Boolean).join(" · ")]));
       out.push(h("p", { class: "element-desc" }, ["Check the photos and the serial number against the item in hand. Whether this certification is accepted depends on the event's rules: PassTech's scrutineer mode checks it when it scans this sticker."]));
     } else if (data.kind === "car") {
@@ -255,5 +264,77 @@
     return h("div", { class: "sticker-view" }, out);
   }
 
-  window.Stickers = { svg, printDialog, view, codeFromUrl, title, fmtCode, scanUrl, GEAR_LABEL };
+  // ---- Reading a sticker's QR code -----------------------------------------
+  // ZXing (the browser build of the barcode library PassTech uses), loaded when first needed.
+  const ZXING_LIB = "https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js";
+  let zxingLoading = null;
+  function loadZxing() {
+    if (window.ZXing) return Promise.resolve(window.ZXing);
+    if (!zxingLoading) {
+      zxingLoading = new Promise((resolve, reject) => {
+        const el = document.createElement("script");
+        el.src = ZXING_LIB;
+        el.crossOrigin = "anonymous";
+        el.onload = () => resolve(window.ZXing);
+        el.onerror = () => { zxingLoading = null; reject(new Error("couldn't load the QR code reader")); };
+        document.head.appendChild(el);
+      });
+    }
+    return zxingLoading;
+  }
+  // The sticker code in a QR code's text (a ?s= link) or typed by hand ("K7Q3-M9XD"), or null.
+  function codeFrom(text) {
+    let t = String(text || "").trim();
+    try { const u = new URL(t); t = u.searchParams.get("s") || u.searchParams.get("S") || ""; } catch (e) { /* the code itself */ }
+    const code = t.toUpperCase().replace(/[^0-9A-Z]/g, "");
+    return /^[2-9A-Z]{8}$/.test(code) ? code : null;
+  }
+  // A sticker code in a photo (a File), or null: e.g. a "tag" photo that's really of a sticker.
+  async function codeInPhoto(file) {
+    const ZX = await loadZxing();
+    const url = URL.createObjectURL(file);
+    try { return codeFrom((await new ZX.BrowserQRCodeReader().decodeFromImageUrl(url)).getText()); }
+    catch (e) { return null; }
+    finally { URL.revokeObjectURL(url); }
+  }
+  // "Scan a sticker": the camera, a photo of it, or its code typed in -> onCode(code).
+  function scanDialog(onCode) {
+    let reader = null;
+    const stop = () => { try { if (reader) reader.reset(); } catch (e) { /* stopped */ } reader = null; };
+    const close = () => { stop(); overlay.remove(); };
+    const msg = h("p", { class: "element-desc" }, ["Point the camera at the sticker's QR code."]);
+    const video = h("video", { class: "sticker-scan-video", muted: true, playsinline: true });
+    const got = (code) => { if (!code) return false; close(); onCode(code); return true; };
+    const photo = h("input", { type: "file", accept: "image/*", class: "techsheet-file", onchange: async () => {
+      const f = photo.files[0];
+      photo.value = "";
+      if (!f) return;
+      msg.textContent = "Reading the photo…";
+      if (!got(await codeInPhoto(f).catch(() => null))) msg.textContent = "No sticker QR code found in that photo -- get closer, or type the code printed under it.";
+    } });
+    const typed = h("input", { type: "text", placeholder: "or its code, e.g. K7Q3-M9XD", class: "sticker-scan-code" });
+    const lookUp = () => { if (!got(codeFrom(typed.value))) msg.textContent = "That isn't a sticker code: 8 letters and digits, e.g. K7Q3-M9XD."; };
+    const overlay = h("div", { class: "sticker-dialog-backdrop", onclick: (e) => { if (e.target === overlay) close(); } }, [
+      h("div", { class: "sticker-dialog", role: "dialog", "aria-label": "Scan a sticker" }, [
+        h("h3", {}, ["Scan a sticker"]),
+        video, msg,
+        h("div", { class: "account-actions" }, [
+          h("label", { class: "btn small secondary" }, ["📷 Photo of the sticker", photo]),
+          typed, h("button", { type: "button", class: "btn small secondary", onclick: lookUp }, ["Look up"]),
+          h("button", { type: "button", class: "btn small secondary", onclick: close }, ["Cancel"]),
+        ]),
+      ]),
+    ]);
+    typed.addEventListener("keydown", (e) => { if (e.key === "Enter") lookUp(); });
+    document.body.append(overlay);
+    loadZxing().then((ZX) => {
+      if (!overlay.isConnected) return;
+      reader = new ZX.BrowserQRCodeReader();
+      return reader.decodeFromConstraints({ video: { facingMode: "environment" } }, video, (result) => {
+        if (result && overlay.isConnected) got(codeFrom(result.getText()));
+      });
+    }).catch(() => { video.remove(); msg.textContent = "No camera here (or it isn't allowed): use a photo of the sticker, or type its code."; });
+  }
+
+  window.Stickers = { svg, printDialog, view, codeFromUrl, title, fmtCode, scanUrl, GEAR_LABEL, GEAR, codeFrom, codeInPhoto, scanDialog };
 })();

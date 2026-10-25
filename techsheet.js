@@ -132,7 +132,7 @@
       e.helmetType ? (e.helmetType === "full_face" ? "full face" : "open face") : "", e.seatMounting ? (e.seatMounting === "rails" ? "on rails" : "fixed") : "",
       certs.join(" · "), units.join(" · "), e.towHookFront ? "front" : "", e.towHookRear ? "rear" : "",
       (e.windowBreakerUnits || []).length ? e.windowBreakerUnits.length + " tool(s)" : "", (e.triangleUnits || []).length ? e.triangleUnits.length + " triangle(s)" : "",
-      meta.presenceOnly && e.skipped === false ? "present" : ""].filter(Boolean).join(" · ");
+      meta.presenceOnly && e.skipped === false ? "present" : "", e.stickerCode ? "tech sticker " + e.stickerCode.slice(0, 4) + "-" + e.stickerCode.slice(4) : ""].filter(Boolean).join(" · ");
   }
 
   // ---- The gear details form (like PassTech's My gear) ---------------------
@@ -211,6 +211,7 @@
   // /api/analyze-helmet for a whole-helmet photo), at window.PASSTECH_URL (config.js). What it
   // reads is offered, then filled into the gear details on "Use this"; the photo joins the line's.
   const scans = new WeakMap(); // gear entry -> { busy, error, candidates, notes, added, file, helmet }
+  const stickerNotes = new WeakMap(); // a line's result -> what reading its sticker said (looking up, an error)
   function photoForReader(file) {
     return new Promise((resolve, reject) => {
       const img = new Image();
@@ -258,9 +259,14 @@
     scans.set(entry, st);
     const run = async (file, kind) => {
       Object.assign(st, { busy: kind === "helmet" ? "Reading the helmet…" : "Reading the tag…", error: null });
-      if (kind === "tag") Object.assign(st, { candidates: null, notes: null, added: new Set(), file, photoAdded: false, photoNote: null });
+      if (kind === "tag") Object.assign(st, { candidates: null, notes: null, added: new Set(), file, photoAdded: false, photoNote: null, stickerCode: null });
       changed();
       try {
+        // A tech sticker's QR code in the photo: that's read from the sticker, not by the tag reader.
+        if (kind === "tag" && scan.useSticker && window.Stickers) {
+          const code = await Stickers.codeInPhoto(file).catch(() => null);
+          if (code) { st.stickerCode = code; st.busy = null; changed(true); return; }
+        }
         const imageDataUrl = await photoForReader(file);
         if (kind === "helmet") {
           const r = await passtechReader("/api/analyze-helmet", { imageDataUrl });
@@ -303,6 +309,8 @@
         h("span", { class: "element-desc" }, [st.busy || "PassTech reads the certification off a photo of the tag -- nothing is filled in until you pick it."]),
       ]),
       st.error ? h("p", { class: "verdict fail" }, [st.error]) : null,
+      st.stickerCode ? h("p", { class: "element-desc" }, ["This photo shows tech sticker " + Stickers.fmtCode(st.stickerCode) + ", not a certification tag. ",
+        h("button", { type: "button", class: "btn small", onclick: () => { const c = st.stickerCode; st.stickerCode = null; scan.useSticker(c); } }, ["Read the sticker"])]) : null,
       st.helmet ? h("p", { class: "element-desc" }, [st.helmet]) : null,
       st.notes ? h("p", { class: "element-desc" }, [st.notes]) : null,
       st.candidates && !st.candidates.length ? h("p", { class: "element-desc" }, ["No certification recognized in the photo."]) : null,
@@ -498,6 +506,7 @@
       const teamPhotos = ((dec && dec.photos) || []).filter((p) => !removed.includes(p.sha256));
       const linePhotos = teamPhotos.concat(res.photos || []);
       const addToLine = (file, kind, ask) => addLinePhoto(res, linePhotos, file, kind, ask, opts);
+      const readSticker = (code) => useSticker(r, res, linePhotos, code);
       return h("div", { class: "techsheet-row" + (res.result ? " " + res.result : ""), id: "techsheet-line-" + r.key }, [
         head,
         h("div", { class: "techsheet-item" }, [
@@ -518,11 +527,14 @@
             removed.length ? h("span", { class: "element-desc" }, [" · " + removed.length + " team photo" + (removed.length === 1 ? "" : "s") + " removed",
               ed ? [" · ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); delete res.removedPhotos; opts.onChange(); } }, ["Undo"])] : null]) : null,
           ]) : null,
+          // Its tech sticker (helmet, HANS, seat, extinguisher, suppression): read one to fill the details in.
+          stickerGear(r.item.gear) ? stickerRow(res, dec, readSticker) : null,
           // The gear's details, as PassTech asks for them -- with PassTech's verdict on them.
           gearEntry ? h("div", { class: "techsheet-gear-form" }, [
             h("div", { class: "techsheet-gear-form-title" }, ["Gear details" + (dec && dec.gear ? " (from the competitor's sheet -- correct them if needed)" : "")]),
             E ? gearForm(E, r.item.gear, gearEntry, ed, () => opts.onChange(), ed && opts.addPhoto ? {
               addPhoto: (file, kind) => addToLine(file, kind, false),
+              useSticker: stickerGear(r.item.gear) && opts.lookupSticker ? readSticker : null,
             } : null) : h("p", { class: "element-desc" }, ["Loading PassTech's gear checks…"]),
             verdict ? h("div", { class: "techsheet-verdict-box " + verdictClass(verdict) }, [h("strong", {}, ["PassTech: " + VERDICT_LABEL[verdict.status] + " -- "]), verdict.reason]) : null,
           ]) : null,
@@ -543,6 +555,47 @@
             ed && opts.addPhoto ? [addPhotoButton(addToLine, "item"), r.item.gear ? addPhotoButton(addToLine, "tag") : null] : null,
           ]),
         ]),
+      ]);
+    }
+    // ---- A line's tech sticker (stickers.js; sticker_view() through opts.lookupSticker) ----
+    function stickerGear(cat) { return !!(cat && window.Stickers && Stickers.GEAR.includes(cat)); }
+    // Fills the line from a sticker: its gear details, its photos (shared by their hash), and the
+    // sticker itself (res.sticker: code, status, body, season), shown at the top of the line.
+    async function useSticker(r, res, linePhotos, code) {
+      if (!opts.lookupSticker) return;
+      stickerNotes.set(res, "Looking up sticker " + Stickers.fmtCode(code) + "…");
+      opts.onChange();
+      try {
+        const d = await opts.lookupSticker(code);
+        const name = "Sticker " + Stickers.fmtCode(code);
+        if (!d) throw new Error("There's no sticker " + Stickers.fmtCode(code) + " -- check the code printed under the QR code.");
+        if (d.kind !== "gear") throw new Error(name + " is a " + (d.kind === "car" ? "car's tech pass" : "logbook") + " sticker, not this gear's.");
+        const cat = (d.snapshot || {}).category;
+        if (cat !== r.item.gear) throw new Error(name + " is for a " + (Stickers.GEAR_LABEL[cat] || "different item").toLowerCase() + ", not this line's.");
+        res.gear = Object.assign(JSON.parse(JSON.stringify(d.snapshot.gear || {})), { category: r.item.gear, stickerCode: d.code });
+        (d.snapshot.photos || []).forEach((p) => {
+          if (!linePhotos.concat(res.photos || []).some((q) => q.sha256 === p.sha256)) res.photos = (res.photos || []).concat({ sha256: p.sha256, kind: p.kind === "tag" ? "tag" : "item" });
+        });
+        res.sticker = { code: d.code, status: d.status, body: d.body, bodyName: d.bodyName, season: d.season, issuedAt: d.issuedAt };
+        stickerNotes.delete(res);
+      } catch (e) { stickerNotes.set(res, e.message || String(e)); }
+      opts.onChange();
+    }
+    function stickerRow(res, dec, readSticker) {
+      const st = res.sticker;
+      const teamCode = dec && dec.gear && dec.gear.stickerCode;
+      const note = stickerNotes.get(res);
+      const canRead = ed && opts.lookupSticker;
+      if (!st && !teamCode && !note && !canRead) return null;
+      return h("div", { class: "techsheet-sticker" }, [
+        st ? h("span", { class: "techsheet-chip " + (st.status === "valid" ? "pass" : "fail"), title: "Read from the sticker: its gear details and photos" }, [
+          "Sticker " + Stickers.fmtCode(st.code) + (st.season ? " · " + (st.bodyName || String(st.body || "").toUpperCase()) + " " + st.season + " season" : "") +
+          " · " + (st.status === "valid" ? "valid" : st.status)]) : null,
+        teamCode && (!st || st.code !== teamCode) ? h("span", { class: "element-desc" }, ["The team's gear has sticker " + Stickers.fmtCode(teamCode) + " ",
+          canRead ? h("button", { type: "button", class: "btn small secondary", onclick: () => readSticker(teamCode) }, ["Check it"]) : null]) : null,
+        canRead ? h("button", { type: "button", class: "btn small secondary", title: "Read a sticker already on this item: fills in its details and photos",
+          onclick: () => Stickers.scanDialog(readSticker) }, ["🔳 Scan a sticker"]) : null,
+        note ? h("span", { class: "element-desc" }, [note]) : null,
       ]);
     }
     function addPhotoButton(addToLine, kind) {
@@ -570,6 +623,8 @@
         return h("div", {}, [s.label + ": " + x.name + (x.license ? " (" + x.license + ")" : "") + " · " + new Date(x.at).toLocaleString()]);
       })));
     }
+    // opts.bare: the lines alone (the annual stickers screen's one item), no header, summary or sections.
+    if (opts.bare) return h("div", { class: "techsheet techsheet-bare" }, groups.flatMap(({ section, rows }) => rows.map((r) => line(r, section))));
     return h("div", { class: "techsheet" }, out);
   }
   // ---- Duplicate photos ---------------------------------------------------

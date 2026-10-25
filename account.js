@@ -796,6 +796,30 @@
     lockSheet(ui.techSheet, false);
     ui.techSheet = null;
   }
+  // Unsaved changes: what's filled in, compared with the last save (or the sheet as opened --
+  // taken after its first render, which fills in what's derived, e.g. the team's gear details).
+  const sheetState = (t) => JSON.stringify({ header: t.header, variant: t.variant, inspection: t.inspection, competitor: t.competitorImported ? t.competitor : null });
+  const sheetDirty = () => { const t = ui.techSheet; return !!t && t.savedState != null && sheetState(t) !== t.savedState; };
+  window.addEventListener("beforeunload", (e) => { if (sheetDirty()) { e.preventDefault(); e.returnValue = ""; } });
+  // Leaving the open sheet (Close, another event, another mode): with unsaved changes, save them,
+  // drop them, or stay. then() runs once it's closed.
+  function leaveTechSheet(then) {
+    if (!sheetDirty()) { closeTechSheet(); then(); return; }
+    const t = ui.techSheet;
+    choose("Car #" + t.entry.car_number + "'s tech sheet has unsaved changes.", [
+      ["Save and close", "small", async () => { if (await saveTechSheet(null)) { closeTechSheet(); then(); } }],
+      ["Close without saving", "small secondary", () => { closeTechSheet(); then(); }],
+      ["Keep editing", "small secondary", () => {}],
+    ]);
+  }
+  // A small dialog: the message and its buttons ([label, class, action]); any button closes it.
+  function choose(message, buttons) {
+    const overlay = h("div", { class: "sticker-dialog-backdrop" }, [h("div", { class: "sticker-dialog", role: "dialog" }, [
+      h("p", {}, [message]),
+      actions(...buttons.map(([label, cls, act]) => btn(label, () => { overlay.remove(); act(); }, cls))),
+    ])]);
+    document.body.append(overlay);
+  }
   // templateId: open (or move the car to) that one of the event's sheets.
   function openTechSheet(x, templateId) {
     const b = ui.event;
@@ -857,13 +881,15 @@
       } });
       t.competitorImported = false;
       t.seenSubmittedAt = (s.competitor && s.competitor.submittedAt) || "";
+      t.savedState = sheetState(t);
       say("pass", finish ? "Car " + t.entry.car_number + " " + (finish === "pass" ? "passed" : "failed") + (s.record ? " -- recorded in its logbook." : ".") +
         (finish === "pass" ? " Its stickers can be issued below." : "") : "Tech sheet saved.");
       // Passed: the sheet stays open for its stickers.
       if (finish === "fail") ui.techSheet = null;
       else { t.status = s.status; t.sheetId = s.id; loadSheetStickers(); }
       await openEvent(ui.event.event.id); loadEventsOnly();
-    } catch (e) { fail(e); }
+      return true;
+    } catch (e) { fail(e); return false; }
   }
   // A team's sheet exported from PassTech (a file): their declarations and
   // photos come into the open sheet.
@@ -929,7 +955,7 @@
       editable && open ? btn("Finish: Passed", () => saveTechSheet("pass"), "small") : null,
       editable && open ? btn("Finish: Failed", () => saveTechSheet("fail"), "small secondary") : null,
     ];
-    const closeButton = () => btn("Close", () => { closeTechSheet(); render(); }, "small secondary");
+    const closeButton = () => btn("Close", () => leaveTechSheet(render), "small secondary");
     return h("div", { class: "account-card", id: "techsheet-panel" }, [
       h("div", { class: "account-card-title" }, ["Car #" + t.entry.car_number + " -- " + t.template.title,
         t.status === "passed" || t.status === "failed" ? h("span", { class: "badge " + (t.status === "passed" ? "pass" : "req") }, [t.status]) : null]),
@@ -947,7 +973,9 @@
         ? select(eventSheets(ui.event).map((x) => [x.id, x.title + sheetClasses(x)]), t.templateId || "", (v) => { if (v && v !== t.templateId) openTechSheet(t.x, v); })
         : input({ value: t.template.title, disabled: true }, () => {}))]) : null,
       TechSheet.sheet({ template: t.template, variant: t.variant, header: t.header, competitor: t.competitor, inspection: t.inspection,
-        editable, view: t.view, photoUrl: techPhotoUrl, addPhoto: addTechPhoto, setVariant: (v) => { t.variant = v; }, onChange: render }),
+        editable, view: t.view, photoUrl: techPhotoUrl, addPhoto: addTechPhoto, lookupSticker, setVariant: (v) => { t.variant = v; }, onChange: render }),
+      // (The state as opened, once the first render has filled in what's derived.)
+      t.savedState == null ? void (t.savedState = sheetState(t)) : null,
       editable && open && myRole === "chief" ? h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: t.signAsChief, onchange: (e) => { t.signAsChief = e.target.checked; } }), " Also sign as chief scrutineer"]) : null,
       actions(
         ...mainButtons(),
@@ -961,7 +989,9 @@
   // ---- Tech stickers for the open sheet (stickers.js) ----------------------
   // A helmet / HANS / seat line that passed, with a photo of the item and of
   // its tag, gets a gear sticker; a car that passed, its tech-pass sticker.
-  const STICKER_GEAR = ["helmet", "hnr", "seat"];
+  const STICKER_GEAR = Stickers.GEAR;
+  // A sticker read on a tech sheet line (techsheet.js useSticker).
+  const lookupSticker = (code) => rpc("sticker_view", { p_code: code });
   async function loadSheetStickers() {
     const t = ui.techSheet;
     if (!t || !t.sheetId) return;
@@ -1063,7 +1093,7 @@
       past.map(card),
     ];
   }
-  function openFromList(id) { ui.eventTab = "competitors"; ui.show = {}; closeTechSheet(); openEvent(id); }
+  function openFromList(id) { leaveTechSheet(() => { ui.eventTab = "competitors"; ui.show = {}; openEvent(id); }); }
   // Create an event, or (eventForm.id) edit the open one -- its body stays.
   function renderCreateEvent() {
     const editing = !!eventForm.id;
@@ -1311,7 +1341,7 @@
     ]);
     const filterBox = h("div", { class: "field-row" }, [field("Find a car", input({ value: entryFilter, "data-id": "entry-filter", placeholder: "car number, driver, car…" }, (v) => { entryFilter = v; render(); restoreFocus("entry-filter"); }))]);
     const out = [
-      actions(btn("← All events", () => { ui.event = null; closeTechSheet(); render(); }, "small secondary"),
+      actions(btn("← All events", () => leaveTechSheet(() => { ui.event = null; render(); }), "small secondary"),
         kind === "scrutineer" && !ui.techSheet ? btn("Print the event's stickers", printEventStickers, "small secondary") : null),
       h("h3", { class: "account-event-title" }, [ev.name + " -- " + bodyName(ev.body_id)]),
       desc([fmtDate(ev.starts_on) + (ev.ends_on !== ev.starts_on ? " to " + fmtDate(ev.ends_on) : ""), ev.location,
@@ -1767,6 +1797,141 @@
       onOpenLogbook: d.logbook && d.logbook.publicToken ? () => { ui.stickerView = null; loadPublic(d.logbook.publicToken); } : null });
   }
 
+  // ---- Annual safety stickers (supabase/migrations/20261025000000_annual_stickers.sql) ----
+  // A body's season stickers for gear, outside an event: the scrutineer picks the body and season,
+  // then fills in one item at a time -- new, from last season's sticker, or from a competitor's
+  // application (PassTech) -- marks it Pass and issues its sticker.
+  // ui.annual: { body, season, tab, item, applications, stickers, busy }
+  //   item: { category, owner, competitor (an application's gear and photos, as a team's line),
+  //           inspection, view, replaces (the sticker read), application (its id) }
+  function annualBodies() {
+    const mine = ui.roles.accreditations.map((a) => a.body);
+    return ui.bodies.filter((b) => !b.disabled_at && !b.deleted_at && (ui.roles.admin || mine.includes(b.id)));
+  }
+  function annualState() {
+    if (!ui.annual) {
+      const bodies = annualBodies();
+      ui.annual = { body: bodies.length === 1 ? bodies[0].id : "", season: new Date().getFullYear(), tab: "issue", item: null, applications: null, stickers: null };
+      if (ui.annual.body) loadAnnual();
+    }
+    return ui.annual;
+  }
+  async function loadAnnual() {
+    const a = ui.annual;
+    if (!a || !a.body) return;
+    try {
+      a.applications = await rpc("list_sticker_applications", { p_body: a.body, p_status: "pending" });
+      a.stickers = await rpc("list_stickers", { p: { body: a.body, season: a.season } });
+    } catch (e) { fail(e); }
+    render();
+  }
+  // A new item to fill in: a gear type alone, or from a sticker / an application.
+  function annualItem(category, from) {
+    const a = ui.annual;
+    const item = { category, owner: (from && from.owner) || "", inspection: { items: {} }, view: { open: { [category]: true } },
+      competitor: null, replaces: from && from.replaces, application: from && from.application };
+    if (from && from.gear) {
+      // What's read (an application's gear and photos) comes in as a team's line, to check and correct.
+      item.competitor = { items: { [category]: { declared: from.declared || "", gear: from.gear, photos: from.photos || [] } } };
+    }
+    a.item = item;
+    a.tab = "issue";
+    render();
+  }
+  function annualReadSticker() {
+    Stickers.scanDialog(async (code) => {
+      try {
+        const d = await lookupSticker(code);
+        if (!d) return say("fail", "There's no sticker " + Stickers.fmtCode(code) + ".");
+        if (d.kind !== "gear") return say("fail", "Sticker " + Stickers.fmtCode(code) + " isn't a gear sticker.");
+        const snap = d.snapshot || {};
+        annualItem(snap.category, { gear: Object.assign({}, snap.gear, { category: snap.category }), photos: snap.photos, owner: snap.driver,
+          declared: "From sticker " + Stickers.fmtCode(d.code) + " (" + (d.bodyName || d.body) + " " + (d.season || "") + ", " + d.status + ")", replaces: d.code });
+      } catch (e) { fail(e); }
+    });
+  }
+  async function annualIssue() {
+    const a = ui.annual, it = a.item;
+    const res = it.inspection.items[it.category] || {};
+    const dec = ((it.competitor || {}).items || {})[it.category] || {};
+    if (res.result !== "pass") return say("fail", "Check the gear and mark it Pass first.");
+    const removed = res.removedPhotos || [];
+    const photos = (dec.photos || []).filter((p) => !removed.includes(p.sha256)).concat(res.photos || []);
+    if (!photos.some((p) => p.kind === "tag") || !photos.some((p) => p.kind !== "tag")) return say("fail", "A sticker needs a photo of the whole item and one of its tag or label.");
+    try {
+      const st = await rpc("issue_sticker", { p: { kind: "gear", annual: true, body: a.body, season: a.season, gear: res.gear || dec.gear,
+        photos, label: Stickers.GEAR_LABEL[it.category], owner: it.owner || undefined,
+        replaces: (res.sticker && res.sticker.code) || it.replaces || undefined, application: it.application || undefined } });
+      a.item = null;
+      say("pass", "Sticker " + Stickers.fmtCode(st.code) + " issued for " + (st.bodyName || a.body) + " " + a.season + ".");
+      Stickers.printDialog([st]);
+      loadAnnual();
+    } catch (e) { fail(e); }
+  }
+  async function annualDecline(app) {
+    const note = prompt("Decline this application -- why? (the competitor sees it)", "");
+    if (!note || !note.trim()) return;
+    try { await rpc("decline_sticker_application", { p_id: app.id, p_note: note.trim() }); loadAnnual(); } catch (e) { fail(e); }
+  }
+  function renderAnnual() {
+    const a = annualState();
+    const bodies = annualBodies();
+    const out = [h("div", { class: "field-row" }, [
+      field("Sanctioning body", select([["", "— pick —"]].concat(bodies.map((b) => [b.id, b.name])), a.body, (v) => { a.body = v; a.item = null; a.applications = a.stickers = null; loadAnnual(); render(); })),
+      field("Season", input({ type: "number", value: String(a.season), min: "2020", max: "2100" }, (v) => { const y = parseInt(v, 10); if (y > 2000) { a.season = y; a.stickers = null; loadAnnual(); } })),
+    ])];
+    if (!a.body) return out.concat(desc("Pick the body you're issuing stickers for."));
+    const apps = a.applications || [];
+    out.push(tabs([["issue", "Issue a sticker"], ["applications", "Applications (" + apps.length + ")"], ["issued", "Issued for " + a.season + " (" + (a.stickers || []).length + ")"]], a.tab, (t) => { a.tab = t; render(); }));
+    if (a.tab === "applications") {
+      out.push(h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, ["Applications from PassTech"]),
+        desc("Competitors apply from My gear in PassTech, with their gear's details and photos. Check the item in hand, then issue its sticker -- or decline, saying why."),
+        apps.length ? apps.map((x) => h("div", { class: "account-entry" }, [
+          h("span", { class: "account-entry-main" }, [h("strong", {}, [Stickers.GEAR_LABEL[x.category] || x.category]),
+            h("span", { class: "element-desc" }, [" · " + [x.owner, x.submittedBy, "season " + x.season, (x.photos || []).length + " photos", "sent " + fmtDate(x.submittedAt)].filter(Boolean).join(" · ")])]),
+          btn("Review and issue", () => annualItem(x.category, { gear: x.gear, photos: x.photos, owner: x.owner, declared: "Application from " + (x.owner || x.submittedBy), application: x.id }), "small"),
+          btn("Decline", () => annualDecline(x), "small secondary"),
+        ])) : desc("No pending applications."),
+      ]));
+      return out;
+    }
+    if (a.tab === "issued") {
+      const list = a.stickers || [];
+      out.push(h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, [(bodyName(a.body)) + " " + a.season + " stickers"]),
+        list.length ? list.map((s) => h("div", { class: "account-entry" }, [
+          h("span", { class: "account-entry-main" }, [h("strong", {}, [Stickers.fmtCode(s.code)]),
+            h("span", { class: "element-desc" }, [" · " + [Stickers.GEAR_LABEL[(s.snapshot || {}).category], (s.snapshot || {}).driver, fmtDate(s.issuedAt), s.voidedAt ? "void" : ""].filter(Boolean).join(" · ")])]),
+          !s.voidedAt ? btn("Print", () => Stickers.printDialog([s]), "small secondary") : null,
+          !s.voidedAt ? btn("Void", () => voidSticker(s.code).then(loadAnnual), "small secondary") : null,
+        ])) : desc("None issued outside an event for this season yet."),
+      ]));
+      return out;
+    }
+    if (!a.item) {
+      out.push(h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, ["Which gear?"]),
+        actions(...Stickers.GEAR.map((c) => btn(Stickers.GEAR_LABEL[c], () => annualItem(c), "small secondary"))),
+        desc("Already has a sticker from a previous season? Read it: its details and photos fill the new one in."),
+        actions(btn("🔳 Read last season's sticker", annualReadSticker, "small")),
+        apps.length ? desc(apps.length + " application" + (apps.length === 1 ? "" : "s") + " from PassTech waiting -- see Applications.") : null,
+      ]));
+      return out;
+    }
+    const it = a.item;
+    const tpl = { id: "annual", title: "Annual sticker", header: [], sections: [{ id: "gear", title: "", items: [{ id: it.category, label: Stickers.GEAR_LABEL[it.category], gear: it.category }] }] };
+    out.push(h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title" }, [Stickers.GEAR_LABEL[it.category] + " -- " + bodyName(a.body) + " " + a.season + " sticker"]),
+      h("div", { class: "field-row" }, [field("Owner (shown to scrutineers only)", input({ value: it.owner, placeholder: "e.g. the driver's name" }, (v) => { it.owner = v; }))]),
+      TechSheet.sheet({ template: tpl, variant: null, header: {}, competitor: it.competitor, inspection: it.inspection, editable: true, view: it.view, bare: true,
+        photoUrl: techPhotoUrl, addPhoto: addTechPhoto, lookupSticker, setVariant: () => {}, onChange: render }),
+      desc("Check the item against its details and photos -- the sticker needs a photo of the whole item and one of its tag or label -- then mark it Pass and issue."),
+      actions(btn("Issue the sticker", annualIssue, "small"), btn("Cancel", () => { a.item = null; render(); }, "small secondary")),
+    ]));
+    return out;
+  }
+
   // ---- Home: the modes ------------------------------------------------------
   // Like PassTech's landing page: one card per mode the person can use.
   // Two sites from this app (config.js, window.APP_SITE): Digital logbooks
@@ -1778,6 +1943,7 @@
     library: { title: "Logbook library", text: "Logbooks on this device and online: search, open, download, sync, delete." },
     event: { title: "Scrutineering", text: "At an event: each car's tech sheet, its inspection and sign-off, and what's left to inspect." },
     events: { title: "Event admin", text: "Organize events: create them, their staff and tech sheets, and their competitors (MotorsportReg import)." },
+    annual: { title: "Annual safety stickers", text: "Season stickers for helmets, HANS, seats, fire extinguishers and suppression systems -- outside an event, from a competitor's application or last season's sticker." },
     bodies: { title: "Sanctioning bodies", text: "Technical directors, scrutineers and their licenses, and each body's tech sheets." },
   };
   // The other site's address (locally: this page with ?site=).
@@ -1792,12 +1958,13 @@
     const staff = r && r.accreditations.length > 0;
     const organizer = r && (r.admin || r.accreditations.some((a) => a.role === "technical_director"));
     return SITE === "scrutineering"
-      ? (staff ? ["event"] : []).concat(organizer ? ["events", "bodies"] : [])
+      ? (staff ? ["event", "annual"] : []).concat(organizer ? ["events", "bodies"] : [])
       : ["create", "library"].concat(organizer ? ["bodies"] : []);
   }
   // The home screen shows the modes only; Event and Admin modes don't use
   // the logbook editor, and the library starts on its list -- each hides it.
   function goMode(mode) {
+    if (mode !== ui.mode && sheetDirty()) return leaveTechSheet(() => goMode(mode));
     if (mode !== "create" && app) app.hideWorkspace();
     // Each section starts on its list: no event or body left open from before.
     if (mode !== ui.mode) { ui.event = null; closeTechSheet(); ui.body = null; ui.templateEdit = null; ui.show = {}; }
@@ -1897,6 +2064,7 @@
       }
     }
     if (m === "bodies") out.push(renderBodies());
+    if (m === "annual") out.push(renderAnnual());
     return out;
   }
 

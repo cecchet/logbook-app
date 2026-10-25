@@ -262,3 +262,9 @@
 .techsheet-tag-scan .btn.disabled { opacity: 0.5; pointer-events: none; }
 .techsheet-tag-candidate { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; font-size: 0.85rem; }
 .techsheet-tag-candidate.mismatch { border-color: var(--fail); background: var(--fail-bg); }
+/* The sticker scanner's camera (stickers.js scanDialog). */
+.sticker-scan-video { width: 100%; max-height: 50vh; background: #000; border-radius: 6px; margin-bottom: 8px; }
+.sticker-scan-code { flex: 1; min-width: 160px; }
+
+/* A tech sheet line's sticker row (techsheet.js stickerRow). */
+.techsheet-sticker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
