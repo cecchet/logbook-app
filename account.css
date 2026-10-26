@@ -19,6 +19,8 @@
 .account-table th { color: var(--muted); font-weight: 600; }
 .account-table td.account-warn { color: var(--warn); }
 .account-row-actions { white-space: nowrap; }
+/* In a table row the buttons wrap, so a row with several stays inside its card. */
+.account-table td.account-row-actions { white-space: normal; min-width: 180px; }
 .account-row-actions .btn { margin: 0 4px 2px 0; }
 .account-device { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .account-card.selected { border-color: var(--accent); }
@@ -271,3 +273,5 @@
 
 /* A scrutineer's permission checkboxes (account.js permissionBoxes). */
 .account-permissions { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 12px; margin: 6px 0; }
+.account-permissions label { display: flex; align-items: flex-start; gap: 6px; }
+.account-permissions input { margin-top: 3px; flex: none; }

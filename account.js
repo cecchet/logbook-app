@@ -121,7 +121,7 @@
   const PERMISSIONS = [
     ["add_scrutineers", "Add scrutineers"], ["renew_licenses", "Renew licenses / disable"], ["edit_permissions", "Edit permissions"],
     ["delete_scrutineers", "Delete scrutineers"], ["issue_annual_stickers", "Issue annual stickers"], ["void_stickers", "Void stickers"],
-    ["sign_off_tech_sheets", "Sign off tech sheets (Passed / Failed)"], ["issue_logbooks", "Issue logbooks"], ["add_logbook_entries", "Add logbook entries"],
+    ["sign_off_tech_sheets", "Sign off tech sheets"], ["issue_logbooks", "Issue logbooks"], ["add_logbook_entries", "Add logbook entries"],
   ];
   const ALL_PERMISSIONS = PERMISSIONS.map(([p]) => p);
   const DEFAULT_SCRUTINEER = ["issue_annual_stickers", "void_stickers", "sign_off_tech_sheets", "issue_logbooks", "add_logbook_entries"];
@@ -1401,6 +1401,12 @@
         "accepts logbooks from " + ev.accepted_bodies.map(bodyName).join(", "),
         open ? "open for records" : "not open for records (scrutineering " + fmtDate(ev.scrutineering_starts_on) + " to the day after " + fmtDate(ev.ends_on) + ")"].filter(Boolean).join(" · ")),
     ];
+    // Tech sheets with nobody on the staff who can record Passed / Failed (event_bundle's canSignOff per staff member).
+    const signers = b.staff.filter((s) => s.canSignOff);
+    const noSigner = hasSheet && (!b.staff.length || (b.staff.some((s) => s.canSignOff !== undefined) && !signers.length));
+    if (noSigner) out.push(h("p", { class: "verdict warn" }, [b.staff.length
+      ? "Nobody on this event's staff can sign off tech sheets (Passed / Failed): add a scrutineer who can, or give one the \"Sign off tech sheets\" permission" + (ev.discipline ? " for " + disciplineName(ev.body_id, ev.discipline) : "") + "."
+      : "This event has no staff yet: add a scrutineer who can sign off tech sheets (Passed / Failed)."]));
     // Adding competitors: one at a time, or (soon) the MotorsportReg list.
     const canAdd = organizer || myRole === "chief";
     const addButtons = canAdd ? actions(
@@ -1425,7 +1431,9 @@
       out.push(h("div", { class: "account-card" }, [
         h("div", { class: "account-card-title" }, ["Staff"]),
         b.staff.length ? h("ul", { class: "account-records" }, b.staff.map((s) => h("li", {}, [
-          s.email + (s.role === "chief" ? " -- chief scrutineer" : ""), organizer ? [" ", btn("Remove", () => removeStaff(s.email), "small secondary")] : null,
+          s.email + (s.role === "chief" ? " -- chief scrutineer" : "") + " ",
+          hasSheet && s.canSignOff === false ? h("span", { class: "badge cond", title: "Their accreditation for this event doesn't hold \"Sign off tech sheets\": they fill sheets in and save, someone else records Passed / Failed" }, ["can't sign off"]) : null,
+          organizer ? [" ", btn("Remove", () => removeStaff(s.email), "small secondary")] : null,
         ]))) : desc("No staff yet: add the chief scrutineer and the scrutineers working the event."),
         organizer ? h("div", { class: "field-row" }, [
           field("Email", input({ value: staffForm.email, inputmode: "email" }, (v) => { staffForm.email = v; })),
