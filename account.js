@@ -1919,7 +1919,7 @@
     render();
   }
   function stickerStandard(cat, id) {
-    const c = ui.stickerView && ui.stickerView.catalog;
+    const c = (ui.stickerView && ui.stickerView.catalog) || ui.stickerCatalog;
     const x = c && c.categories.find((y) => y.id === cat);
     return (((x && x.standards) || []).concat(c ? c.categories.flatMap((y) => y.standards || []) : []).find((s) => s.id === id) || {}).label || id;
   }
@@ -1981,8 +1981,35 @@
       // (Applications for the discipline picked.)
       a.applications = (await rpc("list_sticker_applications", { p_body: a.body, p_status: "pending" }))
         .filter((x) => (x.discipline || "") === (a.discipline || ""));
-      a.stickers = await rpc("list_stickers", { p: { body: a.body, discipline: a.discipline || "", season: a.season } });
+      a.stickers = await rpc("list_stickers", { p: Object.assign({ body: a.body, discipline: a.discipline || "" }, a.allSeasons ? {} : { season: a.season }) });
+      // Who applied for each sticker issued from an application (PassTech), to search by.
+      a.submitters = {};
+      (await rpc("list_sticker_applications", { p_body: a.body, p_status: "issued" })).forEach((x) => { if (x.stickerCode) a.submitters[x.stickerCode] = x.submittedBy; });
+      if (!ui.stickerCatalog) TechSheet.loadCatalog().then((c) => { ui.stickerCatalog = c; render(); }, () => {});
     } catch (e) { fail(e); }
+    render();
+  }
+  // Everything a scrutineer may search an issued sticker by: its code, gear type, owner, who
+  // applied and who issued it, and the gear's details (standards, serial numbers, …).
+  function stickerSearchText(a, s) {
+    const snap = s.snapshot || {};
+    const words = [];
+    const walk = (v, key) => {
+      if (/photo/i.test(key || "")) return;
+      if (Array.isArray(v)) v.forEach((x) => walk(x));
+      else if (v && typeof v === "object") Object.keys(v).forEach((k) => walk(v[k], k));
+      else if (typeof v === "string" || typeof v === "number") words.push(key === "standardId" ? stickerStandard(snap.category, String(v)) + " " + v : String(v));
+    };
+    walk(snap.gear);
+    return [s.code, Stickers.fmtCode(s.code), Stickers.GEAR_LABEL[snap.category], snap.category, snap.driver, a.submitters && a.submitters[s.code],
+      s.issuedBy, s.season, s.disciplineName, s.voidedAt ? "void" : ""].concat(words).filter(Boolean).join(" ").toLowerCase();
+  }
+  async function annualView(code) {
+    const a = ui.annual;
+    if (a.viewing && a.viewing.code === code) { a.viewing = null; return render(); }
+    a.viewing = { code, data: undefined };
+    render();
+    try { a.viewing.data = await rpc("sticker_view", { p_code: code }); } catch (e) { a.viewing.data = null; fail(e); }
     render();
   }
   // "SCCNH Autocross 2026" / "ARA 2026".
@@ -2048,7 +2075,7 @@
     if (!a.body) return out.concat(desc("Pick the body you're issuing stickers for."));
     if (!annualReady(a)) return out.concat(desc(discs && !discs.length ? "You don't issue annual stickers for any of " + bodyName(a.body) + "'s disciplines." : "Pick the discipline: its stickers are good for its events."));
     const apps = a.applications || [];
-    out.push(tabs([["issue", "Issue a sticker"], ["applications", "Applications (" + apps.length + ")"], ["issued", "Issued for " + a.season + " (" + (a.stickers || []).length + ")"]], a.tab, (t) => { a.tab = t; render(); }));
+    out.push(tabs([["issue", "Issue a sticker"], ["applications", "Applications (" + apps.length + ")"], ["issued", (a.allSeasons ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]], a.tab, (t) => { a.tab = t; render(); }));
     if (a.tab === "applications") {
       out.push(h("div", { class: "account-card" }, [
         h("div", { class: "account-card-title" }, ["Applications from PassTech"]),
@@ -2063,15 +2090,36 @@
       return out;
     }
     if (a.tab === "issued") {
-      const list = a.stickers || [];
+      const all = a.stickers || [];
+      const words = (a.search || "").toLowerCase().split(/\s+/).filter(Boolean);
+      const list = all.filter((s) => (!a.type || (s.snapshot || {}).category === a.type) && (!words.length || ((t) => words.every((w) => t.includes(w)))(stickerSearchText(a, s))))
+        .slice().reverse(); // newest first
+      const viewing = a.viewing;
       out.push(h("div", { class: "account-card" }, [
-        h("div", { class: "account-card-title" }, [annualLabel(a) + " stickers"]),
-        list.length ? list.map((s) => h("div", { class: "account-entry" }, [
-          h("span", { class: "account-entry-main" }, [h("strong", {}, [Stickers.fmtCode(s.code)]),
-            h("span", { class: "element-desc" }, [" · " + [Stickers.GEAR_LABEL[(s.snapshot || {}).category], (s.snapshot || {}).driver, fmtDate(s.issuedAt), s.voidedAt ? "void" : ""].filter(Boolean).join(" · ")])]),
-          !s.voidedAt ? btn("Print", () => Stickers.printDialog([s]), "small secondary") : null,
-          !s.voidedAt && canIn(s.body, s.discipline, "void_stickers") ? btn("Void", () => voidSticker(s.code).then(loadAnnual), "small secondary") : null,
-        ])) : desc("None issued outside an event for this season yet."),
+        h("div", { class: "account-card-title" }, [(a.allSeasons ? [bodyName(a.body), disciplineName(a.body, a.discipline)].filter(Boolean).join(" ") + ", every season," : annualLabel(a)) + " stickers"]),
+        h("div", { class: "field-row" }, [
+          field("Search", input({ value: a.search || "", "data-id": "annual-search", placeholder: "code, owner, who applied, standard, serial number…" }, (v) => { a.search = v; render(); restoreFocus("annual-search"); })),
+          field("Gear", select([["", "All gear"]].concat(Stickers.GEAR.map((c) => [c, Stickers.GEAR_LABEL[c]])), a.type || "", (v) => { a.type = v; render(); })),
+        ]),
+        h("div", { class: "account-checks" }, [h("label", {}, [h("input", { type: "checkbox", checked: !!a.allSeasons, onchange: (e) => { a.allSeasons = e.target.checked; a.stickers = null; loadAnnual(); } }), " Every season, not only " + a.season])]),
+        all.length && (words.length || a.type) ? desc(list.length + " of " + all.length + " match.") : null,
+        list.length ? list.map((s) => {
+          const snap = s.snapshot || {};
+          const who = a.submitters && a.submitters[s.code];
+          const open = viewing && viewing.code === s.code;
+          return h("div", {}, [
+            h("div", { class: "account-entry" }, [
+              h("span", { class: "account-entry-main" }, [h("strong", {}, [Stickers.fmtCode(s.code)]),
+                h("span", { class: "element-desc" }, [" · " + [Stickers.GEAR_LABEL[snap.category], snap.driver, who && who !== snap.driver ? "applied by " + who : "",
+                  a.allSeasons ? String(s.season) : "", fmtDate(s.issuedAt), s.voidedAt ? "void" : ""].filter(Boolean).join(" · ")])]),
+              btn(open ? "Hide" : "View", () => annualView(s.code), "small secondary"),
+              !s.voidedAt ? btn("Print", () => Stickers.printDialog([s]), "small secondary") : null,
+              !s.voidedAt && canIn(s.body, s.discipline, "void_stickers") ? btn("Void", () => voidSticker(s.code).then(() => { if (a.viewing) a.viewing = null; loadAnnual(); }), "small secondary") : null,
+            ]),
+            open ? h("div", { class: "account-card" }, [viewing.data === undefined ? desc("Loading the sticker…") : viewing.data === null ? desc("Couldn't load this sticker.")
+              : Stickers.view(viewing.data, { photoUrl: techPhotoUrl, standardLabel: stickerStandard, lines: TechSheet.lines })]) : null,
+          ]);
+        }) : desc(all.length ? "No sticker matches." : a.allSeasons ? "None issued outside an event yet." : "None issued outside an event for this season yet."),
       ]));
       return out;
     }
