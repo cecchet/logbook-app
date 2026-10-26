@@ -1603,7 +1603,6 @@
   // ui.templateEdit: { body, id (null: a new copy), key, def (edited in place) }
   const bodyTemplates = (body) => (ui.techTemplates || []).filter((t) => t.body_id === body);
   const libraryFor = (body) => (ui.techTemplates || []).filter((t) => !t.body_id && t.definition && t.definition.bodyId === body);
-  const library = () => (ui.techTemplates || []).filter((t) => !t.body_id);
   // A new, empty sheet: the usual header fields and sign-off, no lines yet.
   function blankTemplate(body) {
     const taken = bodyTemplates(body).map((t) => t.key);
@@ -1650,7 +1649,9 @@
     const own = bodyTemplates(b.id);
     const lib = libraryFor(b.id).filter((t) => !own.some((o) => o.key === t.key));
     const editing = ui.templateEdit && ui.templateEdit.body === b.id ? ui.templateEdit : null;
-    const others = library().filter((t) => !own.some((o) => o.key === t.key) && !lib.includes(t));
+    // Sheets other bodies have saved (not their automatic ones), to start from a copy.
+    const others = (ui.techTemplates || []).filter((t) => t.body_id && t.body_id !== b.id)
+      .sort((x, y) => bodyCode(x.body_id).localeCompare(bodyCode(y.body_id)) || x.title.localeCompare(y.title));
     return h("div", { class: "account-section-body" }, [
       h("div", { class: "account-card-title" }, ["Tech sheets"]),
       own.length ? own.map((t) => h("div", { class: "account-entry" }, [
@@ -1659,23 +1660,21 @@
         btn("Edit", () => editTemplate(b.id, t, false), "small secondary"),
         btn("Copy", () => copyTemplate(b.id, t), "small secondary"),
       ])) : desc("No tech sheet of its own yet." + (lib.length ? " Its events use the automatic tech sheet from the ruleset, " + lib[0].title + ", until it has one." : "")),
-      // One way to start a sheet: blank, a copy of one of its own, from its automatic one, or from another body's.
+      // One way to start a sheet: blank, from its ruleset's automatic one, or a copy of a saved sheet (its own or another body's).
       !editing ? h("div", { class: "account-actions" }, [
         h("select", { class: "techsheet-start", "aria-label": "Start a new tech sheet", onchange: (e) => {
           const v = e.target.value;
           if (v === "blank") return editTemplate(b.id, blankTemplate(b.id), true);
-          const ownSheet = own.find((x) => x.id === v);
-          if (ownSheet) return copyTemplate(b.id, ownSheet);
           const mine = lib.find((x) => x.id === v);
           if (mine) return editTemplate(b.id, mine, true);
-          const t = others.find((x) => x.id === v);
-          if (t) editTemplate(b.id, Object.assign({}, t, { key: b.id + "-" + t.key }), true);
+          const t = own.concat(others).find((x) => x.id === v);
+          if (t) copyTemplate(b.id, t);
         } }, [
           h("option", { value: "" }, ["Start a new tech sheet…"]),
           h("option", { value: "blank" }, ["Blank sheet"]),
-          own.length ? h("optgroup", { label: "Copy one of " + bodyCode(b.id) + "'s sheets" }, own.map((t) => h("option", { value: t.id }, [t.title]))) : null,
           lib.length ? h("optgroup", { label: "Automatic tech sheet from " + bodyCode(b.id) + "'s ruleset" }, lib.map((t) => h("option", { value: t.id, title: (t.definition.source || {}).form || "" }, [t.title]))) : null,
-          others.length ? h("optgroup", { label: "Another body's automatic tech sheet" }, others.map((t) => h("option", { value: t.id }, [t.title]))) : null,
+          own.length || others.length ? h("optgroup", { label: "Copy an existing tech sheet" }, own.concat(others).map((t) =>
+            h("option", { value: t.id }, [t.title + (t.body_id === b.id ? "" : " (" + bodyCode(t.body_id) + ")")]))) : null,
         ]),
       ]) : null,
       editing ? h("div", { class: "account-card" }, [
