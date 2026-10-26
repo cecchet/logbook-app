@@ -577,7 +577,7 @@
         (d.snapshot.photos || []).forEach((p) => {
           if (!linePhotos.concat(res.photos || []).some((q) => q.sha256 === p.sha256)) res.photos = (res.photos || []).concat({ sha256: p.sha256, kind: p.kind === "tag" ? "tag" : "item" });
         });
-        res.sticker = { code: d.code, status: d.status, body: d.body, bodyName: d.bodyName, season: d.season, issuedAt: d.issuedAt };
+        res.sticker = { code: d.code, status: d.status, body: d.body, bodyName: d.bodyName, discipline: d.discipline, disciplineName: d.disciplineName, season: d.season, issuedAt: d.issuedAt };
         stickerNotes.delete(res);
       } catch (e) { stickerNotes.set(res, e.message || String(e)); }
       opts.onChange();
@@ -590,7 +590,7 @@
       if (!st && !teamCode && !note && !canRead) return null;
       return h("div", { class: "techsheet-sticker" }, [
         st ? h("span", { class: "techsheet-chip " + (st.status === "valid" ? "pass" : "fail"), title: "Read from the sticker: its gear details and photos" }, [
-          "Sticker " + Stickers.fmtCode(st.code) + (st.season ? " · " + (st.bodyName || String(st.body || "").toUpperCase()) + " " + st.season + " season" : "") +
+          "Sticker " + Stickers.fmtCode(st.code) + (st.season ? " · " + [st.bodyName || String(st.body || "").toUpperCase(), st.disciplineName].filter(Boolean).join(" ") + " " + st.season + " season" : "") +
           " · " + (st.status === "valid" ? "valid" : st.status)]) : null,
         teamCode && (!st || st.code !== teamCode) ? h("span", { class: "element-desc" }, ["The team's gear has sticker " + Stickers.fmtCode(teamCode) + " ",
           canRead ? h("button", { type: "button", class: "btn small secondary", onclick: () => readSticker(teamCode) }, ["Check it"]) : null]) : null,

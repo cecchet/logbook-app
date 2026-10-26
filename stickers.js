@@ -65,9 +65,11 @@
     if (st.kind === "car") return "TECH PASSED · #" + (snap.carNumber || "");
     return "LOGBOOK · " + (snap.digitalNumber || "");
   }
-  // The body and when it's good for: a gear sticker's season ("ARA · 2026"), else the day it was issued.
+  // The body, its discipline, and when it's good for: a gear sticker's season ("SCCNH · AUTOX · 2026",
+  // "ARA · 2026"), else the day it was issued.
   function footer(st) {
-    return [(st.body || "").toUpperCase(), st.kind === "gear" && st.season ? String(st.season) : day(st.issuedAt)].filter(Boolean).join(" · ");
+    return [(st.body || "").toUpperCase(), st.disciplineShort || (st.discipline ? String(st.discipline).toUpperCase() : ""),
+      st.kind === "gear" && st.season ? String(st.season) : day(st.issuedAt)].filter(Boolean).join(" · ");
   }
 
   // The sticker, 100 x 100 units: the QR code, then what it's for, its code, the body and date.
@@ -204,7 +206,7 @@
     const out = [];
     out.push(h("div", { class: "sticker-status " + (valid ? "valid" : "void") }, [
       h("strong", {}, [valid ? "VALID" : data.status === "expired" ? "EXPIRED" : "VOID"]), " sticker " + fmtCode(data.code),
-      data.kind === "gear" && data.season ? " -- " + (data.bodyName || (data.body || "").toUpperCase()) + " " + data.season + " season" : null,
+      data.kind === "gear" && data.season ? " -- " + [data.bodyName || (data.body || "").toUpperCase(), data.disciplineName].filter(Boolean).join(" ") + " " + data.season + " season" : null,
       data.status === "expired" ? (data.kind === "gear" ? " (over)" : " -- for an event that's over") : null,
       data.status === "void" ? " -- " + (data.voidReason === "replaced" && data.replacedBy ? "replaced by sticker " + fmtCode(data.replacedBy) : data.voidReason || "voided") + (data.voidedAt ? " (" + fmtDate(data.voidedAt) + ")" : "") : null,
     ]));
