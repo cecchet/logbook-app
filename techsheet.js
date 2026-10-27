@@ -129,10 +129,28 @@
       u.manufactureDate ? "made " + u.manufactureDate : "", u.certificationDueDate ? "due " + u.certificationDueDate : "", u.hasMetalBracket ? "metal bracket" : "", u.hasAntiTorpedoTabs ? "anti-torpedo" : ""].filter(Boolean).join(" "));
     const meta = E.CATEGORY_META[cat] || {};
     return [e.mode === "material_only" ? meta.materialOnlyLabel || "Fire-resistant material (no certification)" : "",
-      e.helmetType ? (e.helmetType === "full_face" ? "full face" : "open face") : "", e.seatMounting ? (e.seatMounting === "rails" ? "on rails" : "fixed") : "",
+      cat === "helmet" ? (e.helmetType === "full_face" ? "full face" : "open face") + (e.hasVisor ? " with shield" : "") : "", e.seatMounting ? (e.seatMounting === "rails" ? "on rails" : "fixed") : "",
       certs.join(" · "), units.join(" · "), e.towHookFront ? "front" : "", e.towHookRear ? "rear" : "",
       (e.windowBreakerUnits || []).length ? e.windowBreakerUnits.length + " tool(s)" : "", (e.triangleUnits || []).length ? e.triangleUnits.length + " triangle(s)" : "",
       meta.presenceOnly && e.skipped === false ? "present" : "", e.stickerCode ? "tech sticker " + e.stickerCode.slice(0, 4) + "-" + e.stickerCode.slice(4) : ""].filter(Boolean).join(" · ");
+  }
+
+  // A helmet's style, like PassTech's picker: open face (the default, as PassTech's helmetStyle
+  // counts a helmet with none set) or full face, each without or with a face shield.
+  const HELMET_STYLES = [
+    { type: "open_face", visor: false, label: "Open face", icon: "/icons/helmet-open-face.webp" },
+    { type: "open_face", visor: true, label: "Open face with shield", icon: "/icons/helmet-open-face-visor.webp" },
+    { type: "full_face", visor: false, label: "Full face", icon: "/icons/helmet-full-face.webp" },
+    { type: "full_face", visor: true, label: "Full face with shield", icon: "/icons/helmet-full-face-visor.webp" },
+  ];
+  function helmetPicker(entry, ed, changed) {
+    const type = entry.helmetType || "open_face", visor = !!entry.hasVisor;
+    return h("div", { class: "techsheet-helmet-styles", role: "radiogroup", "aria-label": "Helmet style" }, HELMET_STYLES.map((s) => {
+      const on = s.type === type && s.visor === visor;
+      return h("button", { type: "button", role: "radio", "aria-checked": String(on), class: "techsheet-helmet-style" + (on ? " on" : ""), disabled: !ed,
+        onclick: () => { entry.helmetType = s.type; entry.hasVisor = s.visor; if (!s.visor) delete entry.visorNote; changed(true); } },
+        [h("img", { src: s.icon, alt: "" }), h("span", {}, [s.label])]);
+    }));
   }
 
   // ---- The gear details form (like PassTech's My gear) ---------------------
@@ -186,7 +204,7 @@
     if (meta.hybrid) {
       out.push(field("What it is", pick(entry, "mode", [["certified", meta.certifiedLabel || "Certified (SFI or FIA rated)"], ["material_only", meta.materialOnlyLabel || "Fire-resistant material (no certification)"]])));
     }
-    if (cat === "helmet") out.push(field("Helmet type", pick(entry, "helmetType", [["full_face", "Full face"], ["open_face", "Open face"]])));
+    if (cat === "helmet") out.push(helmetPicker(entry, ed, changed));
     if (cat === "seat") out.push(field("Mounting", pick(entry, "seatMounting", [["fixed", "Fixed"], ["rails", "On sliders / rails"]])));
     if (meta.hybrid && entry.mode !== "certified") return [h("div", { class: "techsheet-values" }, out)];
     entry.certifications = entry.certifications || [];
