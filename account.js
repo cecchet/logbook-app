@@ -2365,7 +2365,12 @@
   function editTemplate(body, t, asCopy) {
     const key = asCopy ? uniqueKey(body, t.key) : t.key;
     ui.templateEdit = { body, id: asCopy ? null : t.id, key, blank: !!t.blank, public: !asCopy && !!t.public, def: JSON.parse(JSON.stringify(t.definition)) };
-    if (asCopy) Object.assign(ui.templateEdit.def, { bodyId: body, id: key });
+    if (asCopy) {
+      const from = ui.templateEdit.def.bodyId;
+      Object.assign(ui.templateEdit.def, { bodyId: body, id: key });
+      // (Copied from another body's sheet: its PassTech rulesets were that body's -- the editor picks this one's.)
+      if (from && from !== body) delete ui.templateEdit.def.passtechRulesetIds;
+    }
     render();
   }
   async function saveTemplate() {

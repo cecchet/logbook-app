@@ -128,7 +128,7 @@
     const units = (e.extinguisherUnits || []).map((u, i) => "#" + (i + 1) + ": " + [u.classARating ? u.classARating + "-A" : "", u.bcRating ? u.bcRating + "-B:C" : "", u.weightLbs ? u.weightLbs + " lb" : "",
       u.manufactureDate ? "made " + u.manufactureDate : "", u.certificationDueDate ? "due " + u.certificationDueDate : "", u.hasMetalBracket ? "metal bracket" : "", u.hasAntiTorpedoTabs ? "anti-torpedo" : ""].filter(Boolean).join(" "));
     const meta = E.CATEGORY_META[cat] || {};
-    return [e.mode === "material_only" ? meta.materialOnlyLabel || "Fire-resistant material (no certification)" : "",
+    return [e.mode === "material_only" ? meta.materialOnlyLabel || "Fire-resistant material (no certification)" : e.mode === "non_homologated" ? meta.nonHomologatedLabel || "Not homologated" : "",
       cat === "helmet" ? (e.helmetType === "full_face" ? "full face" : "open face") + (e.hasVisor ? " with shield" : "") : "", e.seatMounting ? (e.seatMounting === "rails" ? "on rails" : "fixed") : "",
       certs.join(" · "), units.join(" · "), e.towHookFront ? "front" : "", e.towHookRear ? "rear" : "",
       (e.windowBreakerUnits || []).length ? e.windowBreakerUnits.length + " tool(s)" : "", (e.triangleUnits || []).length ? e.triangleUnits.length + " triangle(s)" : "",
@@ -202,7 +202,9 @@
     }
     // Certified gear: the certification(s) and their dates; hybrid categories can be plain material / stock.
     if (meta.hybrid) {
-      out.push(field("What it is", pick(entry, "mode", [["certified", meta.certifiedLabel || "Certified (SFI or FIA rated)"], ["material_only", meta.materialOnlyLabel || "Fire-resistant material (no certification)"]])));
+      out.push(field("What it is", pick(entry, "mode", [["certified", meta.certifiedLabel || "Certified (SFI or FIA rated)"]]
+        // (A seat: also a racing seat without a homologation.)
+        .concat(meta.nonHomologatedLabel ? [["non_homologated", meta.nonHomologatedLabel]] : [], [["material_only", meta.materialOnlyLabel || "Fire-resistant material (no certification)"]]))));
     }
     if (cat === "helmet") out.push(helmetPicker(entry, ed, changed));
     if (cat === "seat") out.push(field("Mounting", pick(entry, "seatMounting", [["fixed", "Fixed"], ["rails", "On sliders / rails"]])));
@@ -786,21 +788,29 @@
   // -- kept in step while it's still the generated one (not rewritten by hand).
   // The tick list: the accepted standards, then the no-certification choice
   // when the sheet accepts it (stock/OEM belts, plain fire-resistant socks...).
-  const autoOptions = (cat, ids, noCert) => ids.map((id) => standardLabel(cat, id)).concat(noCert && cat.noCertLabel ? [cat.noCertLabel] : []);
-  function setStandards(it, cat, ids, noCert) {
+  // (A seat: then a racing seat without a homologation, when accepted.)
+  const autoOptions = (cat, ids, noCert, nonHom) => ids.map((id) => standardLabel(cat, id))
+    .concat(nonHom && cat.nonHomologatedLabel ? [cat.nonHomologatedLabel] : [], noCert && cat.noCertLabel ? [cat.noCertLabel] : []);
+  function setStandards(it, cat, ids, noCert, nonHom) {
     if (noCert === undefined) noCert = !!it.noCert;
+    if (nonHom === undefined) nonHom = !!it.nonHomologated;
     const wasAuto = !it.accepts || /^(Accepted: |No certification required|Fire-resistant material accepted without)/.test(it.accepts);
-    const optionsWereAuto = !it.options || !it.options.length || JSON.stringify(it.options) === JSON.stringify(autoOptions(cat, it.standards || [], !!it.noCert));
+    const optionsWereAuto = !it.options || !it.options.length || JSON.stringify(it.options) === JSON.stringify(autoOptions(cat, it.standards || [], !!it.noCert, !!it.nonHomologated));
     it.standards = ids;
     if (noCert) it.noCert = true; else delete it.noCert;
-    if (wasAuto) { if (ids.length || noCert) delete it.accepts; else it.accepts = "No certification required"; }
-    if (optionsWereAuto) { const o = autoOptions(cat, ids, noCert); if (o.length) it.options = o; else delete it.options; }
+    if (nonHom && cat.nonHomologatedLabel) it.nonHomologated = true; else delete it.nonHomologated;
+    if (wasAuto) { if (ids.length || noCert || it.nonHomologated) delete it.accepts; else it.accepts = "No certification required"; }
+    if (optionsWereAuto) { const o = autoOptions(cat, ids, noCert, !!it.nonHomologated); if (o.length) it.options = o; else delete it.options; }
   }
   // The ruleset the editor pre-fills from (st.ruleset, st.cls), once the catalog is in.
   function gearContext(def, st) {
     if (!catalog) return null;
     const bodyRulesets = catalog.rulesets.filter((r) => r.bodyId === def.bodyId || (def.passtechRulesetIds || []).includes(r.id));
-    if (st.ruleset === undefined) st.ruleset = ((def.passtechRulesetIds || [])[0]) || (bodyRulesets[0] || {}).id || "";
+    // (The sheet's own body's first: a sheet copied from another body's may still name that one's.)
+    const own = (id) => catalog.rulesets.some((r) => r.id === id && r.bodyId === def.bodyId);
+    if (st.ruleset === undefined) st.ruleset = (def.passtechRulesetIds || []).find(own) || (bodyRulesets.find((r) => r.bodyId === def.bodyId) || {}).id || ((def.passtechRulesetIds || [])[0]) || "";
+    // A sheet checked against no rules (a copy from another body's): this body's, the one picked.
+    if (!(def.passtechRulesetIds || []).length && st.ruleset && own(st.ruleset)) def.passtechRulesetIds = [st.ruleset];
     const rs = catalog.rulesets.find((r) => r.id === st.ruleset) || null;
     if (rs && st.cls && !(rs.classes || []).some((c) => c.id === st.cls)) st.cls = "";
     return { rs, cls: st.cls, bodyRulesets, others: catalog.rulesets.filter((r) => !bodyRulesets.includes(r)) };
@@ -828,13 +838,18 @@
       cat.standards.length ? [
         h("div", { class: "techsheet-gear-actions" }, [
           small(all ? "Show the accepted ones only" : "Show all " + list.length + " standards", () => { st.expanded[it.id] = !all; onChange(true); }),
-          rs ? small("Tick the ruleset's (" + inRules.size + ")", () => { setStandards(it, cat, [...inRules.keys()], !!(rule && rule.materialOnly)); onChange(true); }) : null,
-          small("Clear all", () => { setStandards(it, cat, [], false); onChange(true); }),
+          rs ? small("Tick the ruleset's (" + inRules.size + ")", () => { setStandards(it, cat, [...inRules.keys()], !!(rule && rule.materialOnly), !!(rule && rule.nonHomologated)); onChange(true); }) : null,
+          small("Clear all", () => { setStandards(it, cat, [], false, false); onChange(true); }),
         ]),
         cat.noCertLabel ? h("label", { class: "techsheet-standard techsheet-nocert" + (it.noCert ? " on" : "") }, [
           h("input", { type: "checkbox", checked: !!it.noCert, onchange: (e) => { setStandards(it, cat, ids, e.target.checked); onChange(true); } }),
           " Also accept: " + cat.noCertLabel,
           rule && rule.materialOnly ? h("span", { class: "badge info", title: "Accepted by " + rs.bodyName + " " + rs.disciplineName + (rule.materialNote ? ": " + rule.materialNote : "") }, ["in rules"]) : null,
+        ]) : null,
+        cat.nonHomologatedLabel ? h("label", { class: "techsheet-standard techsheet-nocert" + (it.nonHomologated ? " on" : "") }, [
+          h("input", { type: "checkbox", checked: !!it.nonHomologated, onchange: (e) => { setStandards(it, cat, ids, undefined, e.target.checked); onChange(true); } }),
+          " Also accept: " + cat.nonHomologatedLabel,
+          rule && rule.nonHomologated ? h("span", { class: "badge info", title: "Accepted by " + rs.bodyName + " " + rs.disciplineName }, ["in rules"]) : null,
         ]) : null,
         shown.length ? h("div", { class: "techsheet-standards" }, shown.map((x) => {
           const r = inRules.get(x.id);
@@ -867,7 +882,7 @@
       const it = { id: uid(cat.id, allItemIds()), label: cat.label, checkedBy: "scrutineer", gear: cat.id };
       if (cat.perOccupant) it.perOccupant = true;
       if (rule && rule.requirement !== "required") it.allowNA = true;
-      setStandards(it, cat, ((rule && rule.accepted) || []).map((a) => a.id), !!(rule && rule.materialOnly));
+      setStandards(it, cat, ((rule && rule.accepted) || []).map((a) => a.id), !!(rule && rule.materialOnly), !!(rule && rule.nonHomologated));
       const sug = st.suggestRule && st.suggestRule(it);
       if (sug) it.rule = sug.rule;
       sec.items.push(it);
@@ -878,6 +893,7 @@
     const show = (it) => {
       st.open = def.sections.findIndex((s) => (s.items || []).includes(it));
       st.gear = it.gear;
+      st.item = it.id;
       onChange(true);
       setTimeout(() => { const el = document.getElementById("techsheet-item-" + it.id); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 50);
     };
@@ -909,10 +925,44 @@
           h("select", { onchange: (e) => { st.cls = e.target.value; onChange(true); } }, [h("option", { value: "" }, ["All classes"]),
             rs.classes.map((c) => h("option", { value: c.id, selected: c.id === st.cls }, [c.label]))])]) : null,
       ]),
+      checkedAgainst(def, st, rs, onChange),
+      rs && items.some((it) => it.gear) ? h("div", { class: "techsheet-editor-row" }, [
+        h("button", { type: "button", class: "btn small secondary", title: "Each gear line's accepted standards (and its no-certification choices) set to what these rules accept -- a sheet copied from another body's",
+          onclick: () => {
+            const lines = items.filter((it) => it.gear && catalog.categories.some((c) => c.id === it.gear));
+            if (!confirm("Set the accepted standards of the sheet's " + lines.length + " gear lines to what " + rs.bodyName + " " + rs.disciplineName + " accepts?")) return;
+            lines.forEach((it) => {
+              const cat = catalog.categories.find((c) => c.id === it.gear);
+              const rule = ruleFor(rs, st.cls, it.gear);
+              setStandards(it, cat, ((rule && rule.accepted) || []).map((a) => a.id), !!(rule && rule.materialOnly), !!(rule && rule.nonHomologated));
+            });
+            onChange(true);
+          } }, ["Update every gear line's standards from these rules"]),
+      ]) : null,
       rows.filter((r) => r[2].length).map(([label, key, cats]) => h("div", { class: "techsheet-gear-row" }, [
         h("div", { class: "techsheet-gear-row-label " + key }, [label]),
         h("div", { class: "techsheet-gear-tiles" }, cats.map(tile)),
       ])),
+    ]);
+  }
+
+  // The PassTech rulesets competitors' gear is checked against (def.passtechRulesetIds): when they're
+  // another body's (a sheet copied from theirs), the editor says so -- and swaps in the one picked.
+  function checkedAgainst(def, st, rs, onChange) {
+    const ids = def.passtechRulesetIds || [];
+    const named = ids.map((id) => catalog.rulesets.find((r) => r.id === id)).filter(Boolean);
+    const foreign = named.filter((r) => r.bodyId !== def.bodyId);
+    const label = (r) => r.bodyName + " -- " + r.disciplineName;
+    if (!foreign.length) return null;
+    const canSwap = rs && rs.bodyId === def.bodyId;
+    return h("p", { class: "verdict warn" }, [
+      "Competitors' gear on this sheet is checked against " + foreign.map(label).join(", ") + " -- another body's rules" +
+        (canSwap ? "." : ": pick this body's above to use its rules instead."),
+      canSwap ? [" ", h("button", { type: "button", class: "btn small", onclick: () => {
+        const keep = ids.filter((id) => !foreign.some((r) => r.id === id));
+        def.passtechRulesetIds = keep.includes(rs.id) ? keep : keep.concat(rs.id);
+        onChange(true);
+      } }, ["Check it against " + label(rs) + " instead"])] : null,
     ]);
   }
 
@@ -1110,8 +1160,28 @@
             open ? small("Delete section", () => { if (confirm("Delete the section \"" + s.title + "\" and its " + s.items.length + " items?")) { def.sections.splice(si, 1); st.open = null; onChange(true); } }) : null,
           ]),
           open ? [
-            s.items.map((it, ii) => h("div", { class: "techsheet-editor-item" + (it.gear && it.gear === st.gear ? " active" : ""), id: "techsheet-item-" + it.id }, [
+            s.items.map((it, ii) => {
+              const editing = st.item === it.id;
+              const toggleItem = () => { st.item = editing ? null : it.id; onChange(true); };
+              const cls = "techsheet-editor-item" + (editing ? " editing" : " folded") + (it.gear && it.gear === st.gear ? " active" : "");
+              const caret = h("button", { type: "button", class: "techsheet-caret", "aria-expanded": String(editing), title: editing ? "Done -- fold it" : "Edit this item",
+                onclick: (e) => { e.stopPropagation(); toggleItem(); } }, [editing ? "▾" : "▸"]);
+              if (!editing) {
+                const cat = it.gear && catalog && catalog.categories.find((c) => c.id === it.gear);
+                const about = [it.gear ? "PassTech: " + (cat ? cat.label : it.gear.replace(/_/g, " ")) : null, it.checkedBy === "team" ? "competitor checks" : null,
+                  it.perOccupant ? "driver & co-driver" : null, it.allowNA ? "N/A allowed" : null, it.rule || null,
+                  it.variants && variants.length ? "only " + variants.filter((v) => it.variants.includes(v.id)).map((v) => v.label).join(", ") : null].filter(Boolean).join(" · ");
+                return h("div", { class: cls, id: "techsheet-item-" + it.id }, [
+                  h("div", { class: "techsheet-editor-row techsheet-editor-head", onclick: (e) => { if (!e.target.closest("button")) toggleItem(); } }, [
+                    caret,
+                    h("span", { class: "techsheet-item-name" }, [it.label || "Untitled item", about ? h("span", { class: "element-desc" }, [" · " + about]) : null]),
+                    small("↑", () => move(s.items, ii, -1), "Move up"), small("↓", () => move(s.items, ii, 1), "Move down"),
+                  ]),
+                ]);
+              }
+              return h("div", { class: cls, id: "techsheet-item-" + it.id }, [
               h("div", { class: "techsheet-editor-row" }, [
+                caret,
                 text(it.label, (v) => { it.label = v; }, { placeholder: "Item", class: "techsheet-item-input" }),
                 h("select", { onchange: (e) => { it.checkedBy = e.target.value; } }, [["scrutineer", "Scrutineer checks"], ["team", "Competitor checks"]].map(([v, l]) => h("option", { value: v, selected: (it.checkedBy || "scrutineer") === v }, [l]))),
                 h("label", { title: variants.length ? "A line for the driver and one for the co-driver, in the car classes with a co-driver" : "A line for the driver and one for the co-driver" }, [h("input", { type: "checkbox", checked: !!it.perOccupant, onchange: (e) => { it.perOccupant = e.target.checked; } }), variants.length ? " Driver & co-driver (classes with one)" : " Driver & co-driver"]),
@@ -1137,8 +1207,14 @@
                   if (on.size === variants.length) delete it.variants; else it.variants = variants.map((x) => x.id).filter((x) => on.has(x));
                 } }), " " + v.label,
               ]))]) : null,
-            ])),
-            h("div", { class: "techsheet-editor-row" }, [small("Add an item", () => { s.items.push({ id: uid("item", allItemIds()), label: "New item", checkedBy: "scrutineer" }); onChange(true); })]),
+            ]);
+            }),
+            h("div", { class: "techsheet-editor-row" }, [small("Add an item", () => {
+              const id = uid("item", allItemIds());
+              s.items.push({ id, label: "New item", checkedBy: "scrutineer" });
+              st.item = id;
+              onChange(true);
+            })]),
           ] : null,
         ]);
       }),

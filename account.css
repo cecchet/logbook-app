@@ -131,7 +131,13 @@
 .techsheet-editor-section.editing { border: 2px solid var(--accent); box-shadow: 0 0 0 3px var(--info-bg); }
 .techsheet-editor-section.editing > .techsheet-editor-head { background: var(--accent); color: #fff; }
 .techsheet-editor-section.editing > .techsheet-editor-head .btn { background: var(--panel); }
-.techsheet-editor-section.editing .techsheet-editor-item:nth-of-type(even) { background: var(--info-bg); }
+/* Its items: each a box, folded to one row; the one being edited open and highlighted. */
+.techsheet-editor-section.editing .techsheet-editor-item { border: 1px solid var(--border); border-radius: var(--radius); margin: 6px 8px; padding: 2px 0; background: var(--panel); }
+.techsheet-editor-item.folded .techsheet-editor-head { cursor: pointer; }
+.techsheet-editor-item.folded .techsheet-editor-head:hover { background: var(--info-bg); }
+.techsheet-item-name { flex: 1; min-width: 0; font-weight: 600; }
+.techsheet-item-name .element-desc { font-weight: 400; }
+.techsheet-editor-section.editing .techsheet-editor-item.editing { border: 2px solid var(--warn); background: var(--warn-bg); box-shadow: 0 0 0 3px var(--warn-bg); margin: 10px 8px; }
 .techsheet-caret { border: none; background: none; font: inherit; font-size: 1rem; color: inherit; cursor: pointer; padding: 0 4px; }
 .techsheet-section-name { flex: 1; font-weight: 600; }
 .techsheet-applies { font-size: 0.85rem; color: var(--muted); }
