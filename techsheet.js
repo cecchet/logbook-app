@@ -1187,6 +1187,17 @@
                 h("label", { title: variants.length ? "A line for the driver and one for the co-driver, in the car classes with a co-driver" : "A line for the driver and one for the co-driver" }, [h("input", { type: "checkbox", checked: !!it.perOccupant, onchange: (e) => { it.perOccupant = e.target.checked; } }), variants.length ? " Driver & co-driver (classes with one)" : " Driver & co-driver"]),
                 h("label", {}, [h("input", { type: "checkbox", checked: !!it.allowNA, onchange: (e) => { it.allowNA = e.target.checked; } }), " N/A allowed"]),
                 small("↑", () => move(s.items, ii, -1), "Move up"), small("↓", () => move(s.items, ii, 1), "Move down"),
+                // To another section: at its end, that section open with the item still being edited.
+                def.sections.length > 1 ? h("select", { title: "Move this item to another section", onchange: (e) => {
+                  const to = def.sections[Number(e.target.value)];
+                  if (!to || to === s) return;
+                  s.items.splice(ii, 1);
+                  (to.items = to.items || []).push(it);
+                  st.open = def.sections.indexOf(to);
+                  st.item = it.id;
+                  onChange(true);
+                  setTimeout(() => { const el = document.getElementById("techsheet-item-" + it.id); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 50);
+                } }, def.sections.map((x, xi) => h("option", { value: String(xi), selected: x === s }, [(x === s ? "In: " : "Move to: ") + (x.title || "Untitled section")]))) : null,
                 small("Delete", () => { s.items.splice(ii, 1); onChange(true); }),
               ]),
               h("div", { class: "techsheet-editor-row" }, [
