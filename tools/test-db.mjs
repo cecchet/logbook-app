@@ -75,8 +75,8 @@ await check("admin creates sanctioning bodies", async () => {
 await refused("a stranger can't create a body", () => rpc(STRANGER, "save_body", ["x", "X"]), /not allowed/);
 await check("admin appoints a technical director", () => rpc(ADMIN, "grant_accreditation", [TD, "Tech Director", "ara", "technical_director", "TD-1", "01"]));
 await check("the technical director adds a scrutineer", () => rpc(TD, "grant_accreditation", [S1, "Sam One", "ara", "scrutineer", "L-77", "07"]));
-await refused("a technical director can't appoint another director", () => rpc(TD, "grant_accreditation", ["x@y.test", "X", "ara", "technical_director"]), /not allowed/);
-await refused("a technical director can't add scrutineers to another body", () => rpc(TD, "grant_accreditation", ["x@y.test", "X", "nasa", "scrutineer"]), /not allowed/);
+await refused("a technical director can't appoint another director", () => rpc(TD, "grant_accreditation", ["x@y.test", "X", "ara", "technical_director"]), /not allowed|only Frog Racing names a technical director/);
+await refused("a technical director can't add scrutineers to another body", () => rpc(TD, "grant_accreditation", ["x@y.test", "X", "nasa", "scrutineer"]), /not allowed|aren.t allowed to add scrutineers/);
 await check("one person, accredited by two bodies", async () => {
   await rpc(ADMIN, "grant_accreditation", [MULTI, "Multi", "ara", "scrutineer", "A-1"]);
   await rpc(ADMIN, "grant_accreditation", [MULTI, "Multi", "nasa", "scrutineer", "N-1"]);
@@ -200,7 +200,7 @@ await check("the technical director renews the license for a year", async () => 
   const roles = await rpc(S2, "my_roles");
   assert(roles.accreditations.length === 1 && roles.accreditations[0].licenseExpires === day(365), "not renewed: " + JSON.stringify(roles));
 });
-await refused("a stranger can't renew a license", () => rpc(STRANGER, "renew_license", [s2acc, day(700)]), /not allowed/);
+await refused("a stranger can't renew a license", () => rpc(STRANGER, "renew_license", [s2acc, day(700)]), /not allowed|aren.t allowed to renew licenses/);
 
 console.log("Cars without a VIN");
 const buggy = { make: "Custom", model: "Rally buggy", year: "2019", name: "Blue buggy" };
@@ -423,7 +423,7 @@ await check("the scrutineer passes the car: signed, tech status and logbook reco
   const [rec] = (await db.query("select body from records where id = $1", [s.record])).rows;
   assert(rec.body.techSheet === sheet12 && rec.body.result === "pass", JSON.stringify(rec.body));
 });
-await refused("the competitor can't change a sheet once inspected", () => rpc(COMPETITOR, "submit_tech_sheet", [{ event, carNumber: "12" }]), /already being inspected/);
+await refused("the competitor can't change a sheet once inspected", () => rpc(COMPETITOR, "submit_tech_sheet", [{ event, carNumber: "12" }]), /already being inspected|its sheet is final/);
 await check("the competitor sees the result", async () => {
   const [mine] = await rpc(COMPETITOR, "my_tech_sheets");
   assert(mine.status === "passed" && mine.inspection.items["helmet.driver"].result === "pass", JSON.stringify(mine));
@@ -523,6 +523,110 @@ await check("closed: the phone's link stops working", async () => {
   assert(r.open === false, "still open");
 });
 await refused("a closed session takes no photos", () => rpc(null, "photo_drop_put", [drop, PHOTO]), /expired/);
+
+console.log("Scrutineering offline (conflicts, offline time, reserved sticker codes)");
+const ago = (ms) => new Date(Date.now() - ms).toISOString();
+let sheet31;
+await check("a sheet the device believed new is created (baseUpdatedAt \"\")", async () => {
+  sheet31 = await rpc(S2, "save_tech_sheet", [event, { carNumber: "31", baseUpdatedAt: "", inspection: { items: {} } }]);
+  assert(sheet31.status === "inspecting" && typeof sheet31.updatedAt === "string", JSON.stringify(sheet31));
+});
+let base31;
+await check("saving from the sheet's current updatedAt is accepted", async () => {
+  const s = await rpc(S2, "save_tech_sheet", [event, { carNumber: "31", baseUpdatedAt: sheet31.updatedAt, inspection: { items: { "helmet.driver": { note: "ok" } } } }]);
+  assert(s.updatedAt !== sheet31.updatedAt, "updatedAt didn't move");
+  base31 = s.updatedAt;
+});
+const conflict = async (name, fn) => {
+  try { await fn(); failed++; console.log("  FAIL  " + name + " (was allowed)"); }
+  catch (e) {
+    if (!/^conflict: /.test(e.message) || e.code !== "TS409") { failed++; console.log("  FAIL  " + name + " (wrong error: " + e.code + " " + e.message + ")"); return; }
+    passed++; console.log("  ok    " + name + " -- refused (" + e.code + "): " + e.message);
+  }
+};
+await conflict("a stale base is a conflict", () => rpc(S2, "save_tech_sheet", [event, { carNumber: "31", baseUpdatedAt: sheet31.updatedAt, inspection: {} }]));
+await conflict("\"no sheet yet\" when another device made one is a conflict", () => rpc(CHIEF, "save_tech_sheet", [event, { carNumber: "31", baseUpdatedAt: "", inspection: {} }]));
+await check("...and the conflict saved nothing", async () => {
+  const [s] = (await db.query("select inspection, to_jsonb(updated_at) #>> '{}' as u from tech_sheets where id = $1", [sheet31.id])).rows;
+  assert(s.u === base31 && s.inspection.items["helmet.driver"].note === "ok", JSON.stringify(s));
+});
+await check("without baseUpdatedAt there's no check (older clients)", () => rpc(CHIEF, "save_tech_sheet", [event, { carNumber: "31", inspection: { items: { "helmet.driver": { note: "ok" } } } }]));
+await refused("a change made offline more than 3 days ago", () => rpc(S2, "save_tech_sheet", [event, { carNumber: "31", offlineAt: ago(3 * 864e5 + 6e4), inspection: {} }]), /more than 3 days ago/);
+await check("passed offline: signed and inspected at the time it was done", async () => {
+  const at = ago(3600e3);
+  const s = await rpc(S2, "save_tech_sheet", [event, { carNumber: "31", offlineAt: at, inspection: { items: { "helmet.driver": { result: "pass" } } }, finish: "pass" }]);
+  const sig = s.inspection.signatures.scrutineer.at;
+  assert(s.status === "passed" && +new Date(sig) === +new Date(at) && +new Date(s.inspectedAt) === +new Date(at), JSON.stringify({ sig, at, inspectedAt: s.inspectedAt }));
+  assert(+new Date(s.updatedAt) > +new Date(at), "updatedAt is the sync time");
+});
+let ended;
+await check("finished offline on the window's last day, synced the day after: accepted", async () => {
+  ended = await rpc(TD, "save_event", [{ body: "ara", name: "Yesterday's Rally", scrutineeringStartsOn: day(-4), startsOn: day(-3), endsOn: day(-2) }]);
+  await rpc(TD, "set_event_staff", [ended, S2, "scrutineer"]);
+  const s = await rpc(S2, "save_tech_sheet", [ended, { carNumber: "4", offlineAt: day(-1) + "T12:00:00Z", inspection: { items: {} }, finish: "pass" }]);
+  assert(s.status === "passed" && s.inspectedAt.startsWith(day(-1)), JSON.stringify(s.inspectedAt));
+});
+await refused("...but the same, done online today: the event is over", () => rpc(S2, "save_tech_sheet", [ended, { carNumber: "5", inspection: {}, finish: "pass" }]), /this event is over/);
+await refused("...and offline today: the event is over too", () => rpc(S2, "save_tech_sheet", [ended, { carNumber: "5", offlineAt: ago(6e4), inspection: {} }]), /this event is over/);
+await refused("a result made offline before scrutineering opened", () => rpc(CHIEF, "save_tech_sheet", [later, { carNumber: "5", offlineAt: ago(6e4), finish: "pass", inspection: {} }]), /only be recorded during scrutineering/);
+
+let codes;
+await refused("a stranger can't reserve sticker codes", () => rpc(STRANGER, "reserve_sticker_codes", [event, 5]), /only the event's staff/);
+await refused("nor a scrutineer from another event", () => rpc(MULTI, "reserve_sticker_codes", [event, 5]), /only the event's staff/);
+await refused("1 to 100 at a time", () => rpc(S2, "reserve_sticker_codes", [event, 101]), /1 to 100/);
+await refused("not for an event that's over", () => rpc(S2, "reserve_sticker_codes", [ended, 5]), /this event is over/);
+await check("a scrutineer reserves codes; the list grows, oldest first", async () => {
+  const first = await rpc(S2, "reserve_sticker_codes", [event, 5]);
+  codes = await rpc(S2, "reserve_sticker_codes", [event, 3]);
+  assert(first.length === 5 && codes.length === 8 && codes.slice(0, 5).join() === first.join(), JSON.stringify({ first, codes }));
+  assert(codes.every((c) => /^[2-9A-HJ-NP-Z]{8}$/.test(c)), "odd codes " + codes);
+});
+await check("unused reservations are capped at 200 per scrutineer and event", async () => {
+  await rpc(CHIEF, "reserve_sticker_codes", [event, 100]);
+  await rpc(CHIEF, "reserve_sticker_codes", [event, 100]);
+  const capped = await rpc(CHIEF, "reserve_sticker_codes", [event, 100]);
+  assert(capped.length === 200, "chief has " + capped.length);
+});
+await check("new codes never reuse a reserved one", async () => {
+  // Force the random bytes: all 0 ("22222222", reserved here) first, then all 1 ("33333333").
+  const got = await db.transaction(async (tx) => {
+    await tx.exec(`create table public.t_bytes (n int); insert into public.t_bytes values (0);
+      create or replace function extensions.gen_random_bytes(int) returns bytea language sql volatile as
+        $$ update public.t_bytes set n = n + 1 returning decode(repeat(lpad(to_hex(n - 1), 2, '0'), $1), 'hex') $$;
+      insert into sticker_code_reservations (code, event_id, reserved_by) values ('22222222', '${event}', 'x@y.test');`);
+    const code = (await tx.query("select new_sticker_code() as c")).rows[0].c;
+    await tx.rollback();
+    return code;
+  });
+  assert(got === "33333333", "got " + got);
+});
+let reservedSticker;
+await check("a car sticker under a reserved code", async () => {
+  reservedSticker = await rpc(S2, "issue_sticker", [{ kind: "car", techSheet: sheet12, code: codes[0].slice(0, 4) + "-" + codes[0].slice(4).toLowerCase() }]);
+  const [r] = (await db.query("select used_at from sticker_code_reservations where code = $1", [codes[0]])).rows;
+  assert(reservedSticker.code === codes[0] && r.used_at, JSON.stringify({ reservedSticker, r }));
+  const left = await rpc(S2, "reserve_sticker_codes", [event, 1]);
+  assert(!left.includes(codes[0]) && left.length === 8, "the used code is still listed");
+});
+await check("sending it again (a retried sync) returns the same sticker", async () => {
+  const again = await rpc(S2, "issue_sticker", [{ kind: "car", techSheet: sheet12, code: codes[0] }]);
+  const n = (await db.query("select count(*)::int as n from stickers where tech_sheet_id = $1 and voided_at is null", [sheet12])).rows[0].n;
+  assert(again.code === codes[0] && again.issuedAt === reservedSticker.issuedAt && n === 1, JSON.stringify({ again, n }));
+});
+await refused("a used code on another car's sticker", () => rpc(S2, "issue_sticker", [{ kind: "car", techSheet: sheet31.id, code: codes[0] }]), /already on another sticker/);
+await refused("someone else's reserved code", async () => {
+  const [theirs] = await rpc(CHIEF, "reserve_sticker_codes", [event, 1]);
+  return rpc(S2, "issue_sticker", [{ kind: "car", techSheet: sheet31.id, code: theirs }]);
+}, /isn't one you reserved/);
+await refused("a code nobody reserved", () => rpc(S2, "issue_sticker", [{ kind: "car", techSheet: sheet31.id, code: "ZZZZZZZZ" }]), /isn't one you reserved/);
+await refused("a reserved code on a logbook sticker", () => rpc(S2, "issue_sticker", [{ kind: "logbook", logbook: issued.id, code: codes[1] }]), /only for an event's gear and car/);
+await check("a sticker for a sheet made offline: by event and car number, issued when it was done", async () => {
+  const at = ago(1800e3);
+  const s = await rpc(S2, "issue_sticker", [{ kind: "car", event, carNumber: " 31 ", code: codes[1], offlineAt: at }]);
+  assert(s.techSheet === sheet31.id && s.code === codes[1] && +new Date(s.issuedAt) === +new Date(at), JSON.stringify(s));
+});
+await refused("a sticker made offline more than 3 days ago", () => rpc(S2, "issue_sticker", [{ kind: "car", techSheet: sheet31.id, code: codes[2], offlineAt: ago(4 * 864e5) }]), /more than 3 days ago/);
+await refused("nobody reads the reservations directly", () => as(S2, (q) => q("select code from sticker_code_reservations")), /permission denied/);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

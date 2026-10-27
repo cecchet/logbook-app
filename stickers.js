@@ -204,6 +204,9 @@
     const snap = data.snapshot || {};
     const valid = data.status === "valid";
     const out = [];
+    // Looked up in this device's offline copy (account.js): as of when it was downloaded.
+    if (data.offlineAsOf) out.push(h("p", { class: "verdict warn" }, ["Checked offline, against this device's copy from " + new Date(data.offlineAsOf).toLocaleString() +
+      ": a sticker voided since then still shows as valid here."]));
     out.push(h("div", { class: "sticker-status " + (valid ? "valid" : "void") }, [
       h("strong", {}, [valid ? "VALID" : data.status === "expired" ? "EXPIRED" : "VOID"]), " sticker " + fmtCode(data.code),
       data.kind === "gear" && data.season ? " -- " + [data.bodyName || (data.body || "").toUpperCase(), data.disciplineName].filter(Boolean).join(" ") + " " + data.season + " season" : null,
@@ -340,5 +343,8 @@
     }).catch(() => { video.remove(); msg.textContent = "No camera here (or it isn't allowed): use a photo of the sticker, or type its code."; });
   }
 
-  window.Stickers = { svg, printDialog, view, codeFromUrl, title, fmtCode, scanUrl, GEAR_LABEL, GEAR, codeFrom, codeInPhoto, scanDialog };
+  // Both QR libraries, loaded now so they're cached for working offline.
+  const loadLibs = () => Promise.all([loadQr(), loadZxing()]);
+
+  window.Stickers = { svg, printDialog, view, codeFromUrl, title, fmtCode, scanUrl, GEAR_LABEL, GEAR, codeFrom, codeInPhoto, scanDialog, loadLibs };
 })();

@@ -151,6 +151,15 @@
         corrections: "Repair or replace the driver's seat mount", signatures: { scrutineer: { name: "Jamie Chen", license: "DRC-014", at: at(0, 11) } } }),
     ];
   };
+  // Sheets saved here (by car number): the demo server keeps them, with the version each save
+  // makes (updatedAt), and refuses a save from an older one like the real server (a conflict).
+  const saved = {};
+  let version = 0;
+  const stamp = () => new Date(Date.UTC(2026, 9, 27, 8, 0, 0) + ++version * 1000).toISOString().replace("Z", "") + "123+00:00";
+  const BASE = stamp();
+  const sheetNow = (car) => saved[car] || techSheets().map((x) => Object.assign({ updatedAt: BASE }, x)).find((x) => x.carNumber === car) || null;
+  const allSheets = () => techSheets().map((x) => saved[x.carNumber] || Object.assign({ updatedAt: BASE }, x))
+    .concat(Object.values(saved).filter((x) => !techSheets().some((y) => y.carNumber === x.carNumber)));
   const bundle = (id) => {
     const ev = events.find((e) => e.id === id);
     const t = sheets();
@@ -161,7 +170,7 @@
         : [{ email: "sam.patel@example.com", role: "chief", canSignOff: true }],
       entries: id === E1 ? entries : [],
       techTemplates: [{ id: ev.discipline === "autox" ? "tpl-autox" : "tpl-rally", title: (ev.discipline === "autox" ? t.AUTOX : t.RALLY).title, definition: ev.discipline === "autox" ? t.AUTOX : t.RALLY, classes: [], body: "drc" }],
-      techSheets: id === E1 ? techSheets() : [],
+      techSheets: id === E1 ? allSheets() : [],
     };
   };
 
@@ -175,6 +184,8 @@
     sticker("H2PZ6V5C", "helmet", "helmet2", "Casey Rivera", photos("helmet", "tag-helmet2"), "Sam Patel", 95),
     sticker("T9QK3M7A", "seat", "seat1", "Casey Rivera", photos("seat", "tag-seat1"), "Sam Patel", 95),
     sticker("W5NC8J4E", "helmet", "helmet1", "Priya Nair", photos("helmet", "tag-helmet1"), "Sam Patel", 40, { voidedAt: at(-12, 9) }),
+    // From before the club had disciplines.
+    sticker("M8DX4P2N", "helmet", "helmet2", "Ben Ortiz", photos("helmet", "tag-helmet2"), "Alex Morgan", 200, { discipline: null, disciplineName: null, disciplineShort: null }),
   ];
   const submitters = { K7M2Q9TX: "jordan.lee@example.com", B4RW8N2D: "jordan.lee@example.com", T9QK3M7A: "casey.rivera@example.com" };
   const applications = [
@@ -184,6 +195,8 @@
       gear: GEAR.hans2, photos: photos("hans", "tag-hans2"), status: "pending" },
     { id: "ap3", body: "drc", discipline: "rally", season: 2026, category: "helmet", owner: "Ben Ortiz", submittedBy: "ben.ortiz@example.com", submittedAt: at(-1, 20),
       gear: GEAR.helmet1, photos: photos("helmet", "tag-helmet1"), status: "pending" },
+    { id: "ap4", body: "drc", discipline: null, season: 2026, category: "seat", owner: "Ben Ortiz", submittedBy: "ben.ortiz@example.com", submittedAt: at(-190, 20),
+      gear: GEAR.seat1, photos: photos("seat", "tag-seat1"), status: "pending" },
   ];
   // Stickers issued from a car's tech sheet at the event (the passed cars).
   const sheetStickers = (sheetId) => {
@@ -216,20 +229,49 @@
       const p = a.p || {};
       if (p.techSheet) return sheetStickers(p.techSheet);
       if (p.event) return ["55", "64", "88"].flatMap((n) => sheetStickers("ts-" + n));
-      return annual.filter((s) => s.discipline === (p.discipline || s.discipline) && (!p.season || s.season === p.season));
+      return annual.filter((s) => (!("discipline" in p) || (s.discipline || "") === p.discipline) && (!p.season || s.season === p.season));
     },
     list_sticker_applications: (a) => (a.p_status === "issued"
       ? Object.entries(submitters).map(([stickerCode, submittedBy]) => ({ stickerCode, submittedBy, discipline: "autox" }))
       : applications.filter((x) => x.body === a.p_body)),
     sticker_view: (a) => view(a.p_code),
-    issue_sticker: (a) => Object.assign({ code: "N3WS7K2R", kind: a.p.kind, body: "drc", discipline: a.p.discipline || "rally", disciplineShort: (a.p.discipline || "rally").toUpperCase(), season: a.p.season,
+    issue_sticker: (a) => Object.assign({ code: a.p.code || "N3WS7K2R", event: E1, item: a.p.item || null, kind: a.p.kind, body: "drc", discipline: a.p.discipline || "rally", disciplineShort: (a.p.discipline || "rally").toUpperCase(), season: a.p.season,
       issuedAt: new Date().toISOString(), snapshot: { category: "helmet", carNumber: "23" } }),
-    save_tech_sheet: (a) => ({ id: "ts-" + a.p.carNumber, status: a.p.finish === "pass" ? "passed" : a.p.finish === "fail" ? "failed" : "pending", competitor: null }),
+    save_tech_sheet: (a) => {
+      const p = a.p, now = sheetNow(String(p.carNumber));
+      if ("baseUpdatedAt" in p && now && p.baseUpdatedAt !== now.updatedAt) {
+        throw Object.assign(new Error("conflict: car " + p.carNumber + "'s sheet changed since this device last had it (by " + (now.inspectedBy || ME) + ", at " + now.updatedAt + ")"), { code: "TS409" });
+      }
+      const t = sheets().RALLY;
+      const sigAt = p.offlineAt || new Date().toISOString();
+      const s = Object.assign({ id: "ts-" + p.carNumber, carNumber: String(p.carNumber), template: t, templateId: "tpl-rally", competitor: null, lockedBy: null }, now, {
+        header: p.header || (now && now.header) || {}, variant: p.variant || null, status: p.finish === "pass" ? "passed" : p.finish === "fail" ? "failed" : "inspecting",
+        inspection: Object.assign({}, p.inspection, p.finish ? { result: p.finish, signatures: { scrutineer: { name: "Alex Morgan", license: "DRC-001", at: sigAt } } } : {}),
+        inspectedBy: ME, updatedAt: stamp() });
+      saved[s.carNumber] = s;
+      if (p.finish) entries.forEach((x) => { if (x.entry.car_number === s.carNumber) x.entry.tech_status = s.status; });
+      return s;
+    },
+    reserve_sticker_codes: (a) => Array.from({ length: 30 }, (_, i) => "OFF" + String.fromCharCode(65 + Math.floor(i / 10)) + "2" + "3456789ABC"[i % 10] + "XY"),
     search_logbooks: () => [],
     lock_tech_sheet: () => null,
   };
   const TABLES = { bodies: () => bodies, body_disciplines: () => disciplines, accreditations: () => accreditations, tech_sheet_templates: templates, records: () => [] };
-  const result = (fn) => { try { return { data: fn(), error: null }; } catch (e) { console.error("demo server:", e); return { data: null, error: { message: String(e && e.message) } }; } };
+  // window.demoOffline = true: every call fails like a lost connection (testing working offline).
+  // window.demoTouch(car): another scrutineer changes that car's sheet (testing conflicts).
+  const NO_NETWORK = { message: "TypeError: Failed to fetch", code: "" };
+  try { window.demoOffline = localStorage.getItem("demoOffline") === "1"; } catch (e) { /* online */ }
+  window.demoTouch = (car) => {
+    const now = sheetNow(String(car));
+    const items = Object.assign({}, now.inspection.items);
+    const key = Object.keys(items)[0] || "helmet.driver";
+    items[key] = Object.assign({}, items[key], { result: "fail", note: "Checked by Jamie: chin strap frayed" });
+    saved[now.carNumber] = Object.assign({}, now, { inspection: Object.assign({}, now.inspection, { items }), inspectedBy: "jamie.chen@example.com", updatedAt: stamp() });
+  };
+  const result = (fn) => {
+    if (window.demoOffline) return { data: null, error: NO_NETWORK };
+    try { return { data: fn(), error: null }; } catch (e) { console.error("demo server:", e); return { data: null, error: { message: String(e && e.message), code: e.code || "" } }; }
+  };
   const query = (table) => {
     const q = { select: () => q, order: () => q, eq: () => q, in: () => q, limit: () => q,
       then: (ok, bad) => Promise.resolve(result(TABLES[table] || (() => []))).then(ok, bad) };
@@ -254,13 +296,19 @@
   const client = {
     auth: {
       // (?demo=signedout: the sign-in screen.)
-      onAuthStateChange: (cb) => { if (!/demo=signedout/.test(location.search)) setTimeout(() => cb("SIGNED_IN", { user: { id: "demo-user", email: ME } }), 50); return { data: { subscription: { unsubscribe() {} } } }; },
+      // (?demo=nosession: no sign-in to renew -- like starting with no connection.)
+      onAuthStateChange: (cb) => {
+        const none = /demo=(signedout|nosession)/.test(location.search);
+        setTimeout(() => cb(none ? "INITIAL_SESSION" : "SIGNED_IN", none ? null : { user: { id: "demo-user", email: ME } }), 50);
+        return { data: { subscription: { unsubscribe() {} } } };
+      },
       signOut: async () => ({ error: null }), signInWithOtp: async () => ({ error: null }), verifyOtp: async () => ({ error: null }),
       getSession: async () => ({ data: { session: { user: { id: "demo-user", email: ME } } }, error: null }),
     },
     rpc: async (fn, args) => (RPC[fn] ? result(() => RPC[fn](args || {})) : (console.warn("demo server: no rpc", fn), { data: null, error: null })),
     from: query,
-    storage: { from: () => ({ download: async (sha) => ({ data: await photoBlob(sha), error: null }), upload: async () => ({ error: null }) }) },
+    storage: { from: () => ({ download: async (sha) => (window.demoOffline ? { data: null, error: NO_NETWORK } : { data: await photoBlob(sha), error: null }),
+      upload: async () => ({ error: window.demoOffline ? NO_NETWORK : null }) }) },
   };
   let real;
   Object.defineProperty(window, "supabase", { configurable: true,

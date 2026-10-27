@@ -126,11 +126,43 @@ A label printer prints through the browser's print dialog: on a laptop through i
 
 An event whose body has no tech sheet yet works the simple way: each car with a logbook gets **Passed** and **Failed** buttons, with a note, and the result is recorded in its logbook.
 
+### Working offline
+
+Paddocks often have little or no signal. Before the event, while you have a connection, open the event and tap **Download for offline** in its **Offline copy** box. Your device then keeps:
+
+- the event, its cars and their tech sheets;
+- the stickers valid there, both those issued at the event and the accepted bodies' annual stickers for the season;
+- copies of their photos;
+- 30 sticker codes reserved for you, so you can print stickers without a connection.
+
+While you're online, the copy refreshes itself every few minutes. Open the site once online on the device you'll use, so it can start without a connection.
+
+With no connection, the site says **Offline** and works from that copy:
+
+- **Tech sheets** open and save as usual. A sheet saved offline shows **not synced** until it reaches the server. You can also finish a sheet as Passed or Failed offline: it's signed at the time you did it.
+- **Photos** you add stay on the device until it syncs.
+- **Stickers** print under your reserved codes, and the box shows how many are left. Voiding a sticker needs a connection.
+- **🔳 Check a sticker** on the event page checks a sticker against the copy. The result says it was checked offline and when the copy was made: a sticker voided since then still shows as valid.
+
+Once the connection is back, everything saved offline syncs on its own, in order. **Sync now** forces it. Sync within three days: the server refuses changes made offline longer ago than that.
+
+If another scrutineer, or the team re-submitting, changed a sheet on the server in the meantime, your version doesn't overwrite theirs. The car shows **conflict**, and **Couldn't sync** lists it:
+
+1. Tap **Compare and resolve**.
+2. For each line that differs, pick the server's version or this device's. **Keep all the server's** and **Keep all this device's** pick them all at once.
+3. If you finished the sheet offline, tick the box to also sign it off, so a verdict is never applied without your say. Then **Save**.
+
+A sheet already signed off on the server can't take your changes: discard them. The same check applies online: a save that would overwrite someone else's change opens the same comparison.
+
+**Remove from this device** deletes an event's copy. Copies also go two days after the event ends, and when you sign out (except changes still waiting to sync), since they hold people's names and photos.
+
 ## Annual safety stickers
 
 Some bodies check personal gear once a season instead of at every event: the helmet, HANS, seat, fire extinguisher and suppression system get a season sticker, and scrutineers at events just scan it. The Annual safety stickers mode issues those stickers, outside any event.
 
 Pick the **Sanctioning body**, its **Discipline** if it has several (a sticker is good for that discipline's events) and the **Season**. Then three tabs: Issue a sticker, Applications (from PassTech) and the stickers already issued.
+
+Stickers and applications from before a body had disciplines belong to none of them. If you're accredited for all of the body's disciplines, pick **No discipline (older stickers)** to see them: you can view, print and void those stickers, and decline those applications, but not issue new ones.
 
 ![Annual safety stickers: which gear?](20-annual.png)
 

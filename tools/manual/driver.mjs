@@ -63,6 +63,8 @@ const api = {
     console.log("shot", name, clip ? Math.round(clip.width) + "x" + Math.round(clip.height) : width + "x" + height);
   },
   log: console.log,
+  // A DevTools protocol call, e.g. send("Network.emulateNetworkConditions", { offline: true, ... }).
+  send,
 };
 try {
   const steps = await import(pathToFileURL(stepsFile).href + "?t=" + Date.now());

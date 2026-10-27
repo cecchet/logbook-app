@@ -51,6 +51,33 @@ as the `core` git submodule; this repo only adds:
 
 No build step beyond that: it's a static site plus one serverless function.
 
+## Working offline (Scrutineering)
+
+At an event with a weak connection, a scrutineer downloads the event for
+offline (`account.js`, "Working offline"; the store is `offline.js`, in
+IndexedDB). What's downloaded:
+
+- the event's bundle;
+- the stickers valid there;
+- photo copies, at most 1600 px;
+- reserved sticker codes.
+
+Offline, the site starts from the service worker's cache (`sw.js`, which also
+caches the jsDelivr libraries and falls back to the cache after 4 s without an
+answer) and from a snapshot of the session.
+
+Saves, photos and stickers go into a queue that syncs in order. Each sheet
+save carries the version it started from (`baseUpdatedAt`), so the server
+refuses an overwrite as a conflict and the scrutineer compares the two
+versions line by line. See
+`supabase/migrations/20261027000000_offline_scrutineering.sql`.
+
+To test it without a server: the demo server (`tools/manual/demo-server.js`)
+keeps saved sheets and has two switches:
+- `window.demoOffline = true` (or `localStorage.demoOffline = "1"`) fails
+  every call;
+- `demoTouch(car)` changes a car's sheet as another scrutineer would.
+
 ## The Scrutineering user manual
 
 `scrutineering-user-manual.html` (the Scrutineering site's "User manual"

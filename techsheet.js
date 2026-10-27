@@ -577,7 +577,8 @@
         (d.snapshot.photos || []).forEach((p) => {
           if (!linePhotos.concat(res.photos || []).some((q) => q.sha256 === p.sha256)) res.photos = (res.photos || []).concat({ sha256: p.sha256, kind: p.kind === "tag" ? "tag" : "item" });
         });
-        res.sticker = { code: d.code, status: d.status, body: d.body, bodyName: d.bodyName, discipline: d.discipline, disciplineName: d.disciplineName, season: d.season, issuedAt: d.issuedAt };
+        res.sticker = { code: d.code, status: d.status, body: d.body, bodyName: d.bodyName, discipline: d.discipline, disciplineName: d.disciplineName, season: d.season, issuedAt: d.issuedAt,
+          offlineAsOf: d.offlineAsOf || undefined };
         stickerNotes.delete(res);
       } catch (e) { stickerNotes.set(res, e.message || String(e)); }
       opts.onChange();
@@ -591,7 +592,7 @@
       return h("div", { class: "techsheet-sticker" }, [
         st ? h("span", { class: "techsheet-chip " + (st.status === "valid" ? "pass" : "fail"), title: "Read from the sticker: its gear details and photos" }, [
           "Sticker " + Stickers.fmtCode(st.code) + (st.season ? " · " + [st.bodyName || String(st.body || "").toUpperCase(), st.disciplineName].filter(Boolean).join(" ") + " " + st.season + " season" : "") +
-          " · " + (st.status === "valid" ? "valid" : st.status)]) : null,
+          " · " + (st.status === "valid" ? "valid" : st.status) + (st.offlineAsOf ? " (checked offline, as of " + new Date(st.offlineAsOf).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + ")" : "")]) : null,
         teamCode && (!st || st.code !== teamCode) ? h("span", { class: "element-desc" }, ["The team's gear has sticker " + Stickers.fmtCode(teamCode) + " ",
           canRead ? h("button", { type: "button", class: "btn small secondary", onclick: () => readSticker(teamCode) }, ["Check it"]) : null]) : null,
         canRead ? h("button", { type: "button", class: "btn small secondary", title: "Read a sticker already on this item: fills in its details and photos",

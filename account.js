@@ -17,10 +17,19 @@
   const holder = document.getElementById("accountPanel");
   const app = window.RollcageApp;
   if (!cfg || !holder || !window.supabase) return;
+  // A weak connection (an event's paddock) mustn't hang a call for minutes: past the timeout it
+  // fails like no connection, and the Scrutineering site works offline (see Working offline).
+  const timedFetch = (url, opts) => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), /\/storage\//.test(String(url)) ? 90000 : 20000);
+    if (opts && opts.signal) opts.signal.addEventListener("abort", () => ctl.abort());
+    return fetch(url, Object.assign({}, opts, { signal: ctl.signal })).finally(() => clearTimeout(timer));
+  };
   const sb = window.supabase.createClient(cfg.url, cfg.anonKey, {
     // Implicit flow: the sign-in link works even when the email opens it in
     // another browser than the one that asked for it.
     auth: { flowType: "implicit", persistSession: true, detectSessionInUrl: true },
+    global: { fetch: timedFetch },
   });
 
   const ui = {
@@ -44,6 +53,11 @@
     publicView: null,     // ?logbook= : { token, data }
     stickerView: null,    // ?s= (a scanned tech sticker): { code, data, catalog }
   };
+  // Working offline (offline.js; see "Working offline" below): this device's store, and
+  //   on: no connection now (working from the offline copy); copies: { eventId: what's downloaded };
+  //   queue: changes waiting to sync, in order; codes: { eventId: reserved sticker codes }.
+  const Store = window.OfflineStore || null;
+  const off = { on: false, copies: {}, queue: [], codes: {}, syncing: false };
 
   // ---- DOM helpers (text only: nothing from the server is parsed as HTML) --
   function h(tag, attrs, children) {
@@ -109,7 +123,17 @@
         ui.techTemplates = tt.error ? [] : tt.data;
         if (ui.event) await openEvent(ui.event.event.id, true);
       }
-    } catch (e) { fail(e); }
+      off.on = false;
+      saveSnapshot();
+      loadOfflineState().then(syncQueue);
+    } catch (e) {
+      // No connection: what this device kept from the last time online.
+      if (isNetworkError(e) && await loadSnapshot(me())) {
+        off.on = true;
+        await loadOfflineState();
+        if (ui.event) await openEvent(ui.event.event.id, true);
+      } else fail(e);
+    }
     render();
   }
   const isStaff = () => ui.roles && (ui.roles.admin || ui.roles.accreditations.length > 0);
@@ -739,8 +763,19 @@
   const staffForm = { email: "", role: "scrutineer" };
   const entryForm = { carNumber: "", driver: "", codriver: "", class: "", email: "", logbook: "", make: "", model: "", year: "" };
   let entryFilter = "";
+  // Offline (or no answer): from this device's offline copy, if it has one.
   async function openEvent(id, quiet) {
-    try { ui.event = await rpc("event_bundle", { p_event: id }); } catch (e) { fail(e); }
+    let bundle = null;
+    if (!off.on) {
+      try { bundle = await rpc("event_bundle", { p_event: id }); }
+      catch (e) { if (!isNetworkError(e)) { fail(e); return; } goOffline(true); }
+    }
+    if (!bundle) {
+      const copy = Store && await Store.get("kv", "event:" + id).catch(() => null);
+      if (!copy) return say("fail", "No connection, and this event isn't downloaded on this device: download it for offline (on its page) while online.");
+      bundle = copy.bundle;
+    } else if (off.copies[id] && Date.now() - Date.parse(off.copies[id].savedAt) > 2 * 60 * 1000) downloadEvent(id, true);
+    showEvent(bundle);
     if (!quiet) render();
   }
   async function saveEvent() {
@@ -799,8 +834,15 @@
   // file), or a new one from the event's template (paper -> digital).
   const TECH_BUCKET = "tech-sheet-photos";
   const techPhotoUrls = {};
+  // (This device's offline copy first: it's there offline, and quicker.)
   function techPhotoUrl(sha) {
-    if (!techPhotoUrls[sha]) techPhotoUrls[sha] = sb.storage.from(TECH_BUCKET).download(sha).then(({ data, error }) => (error ? null : URL.createObjectURL(data)));
+    if (!techPhotoUrls[sha]) {
+      techPhotoUrls[sha] = (Store ? Store.get("photos", sha).catch(() => null) : Promise.resolve(null))
+        .then((blob) => (blob ? URL.createObjectURL(blob) : sb.storage.from(TECH_BUCKET).download(sha).then(({ data, error }) => (error ? null : URL.createObjectURL(data)))))
+        .catch(() => null)
+        // Not found (e.g. offline): asked again next time.
+        .then((url) => { if (!url) delete techPhotoUrls[sha]; return url; });
+    }
     return techPhotoUrls[sha];
   }
   // A scrutineer's photo on a line: at most 2000 px, as a JPEG, into the
@@ -814,10 +856,23 @@
     URL.revokeObjectURL(img.src);
     const blob = await new Promise((resolve) => c.toBlob(resolve, "image/jpeg", 0.85));
     const sha = await sha256Hex(blob);
-    const { error } = await sb.storage.from(TECH_BUCKET).upload(sha, blob, { contentType: "image/jpeg", upsert: false });
-    if (error && !/exist|duplicate/i.test(error.message || "") && String(error.statusCode) !== "409") throw error;
+    await storeTechPhoto(sha, blob);
     techPhotoUrls[sha] = Promise.resolve(URL.createObjectURL(blob));
     return sha;
+  }
+  // Into the tech sheet photo store -- or, offline, onto this device until it syncs.
+  async function storeTechPhoto(sha, blob) {
+    if (!off.on) {
+      try {
+        const { error } = await sb.storage.from(TECH_BUCKET).upload(sha, blob, { contentType: blob.type || "image/jpeg", upsert: false });
+        if (!error || /exist|duplicate/i.test(error.message || "") || String(error.statusCode) === "409") return;
+        if (!isNetworkError(error)) throw error;
+      } catch (e) { if (!isNetworkError(e)) throw e; }
+      if (!Store) throw new Error("No connection: the photo couldn't be uploaded.");
+      goOffline(true);
+    }
+    await Store.put("photos", sha, blob);
+    if (!off.queue.some((q) => q.type === "photo" && q.sha === sha)) await putOp({ type: "photo", sha, event: ui.event && ui.event.event.id, email: me(), at: new Date().toISOString() });
   }
   // The event's sheets: [{ id, title, definition, classes }] (one per group of classes).
   const eventSheets = (b) => (b.techTemplates && b.techTemplates.length ? b.techTemplates : b.techTemplate ? [Object.assign({ classes: [] }, b.techTemplate)] : []);
@@ -834,7 +889,7 @@
   // While a scrutineer has a car's sheet open, the team can't re-submit it (the lock lasts 15
   // minutes, renewed every 5 while it stays open; closing or a verdict releases it).
   function lockSheet(t, lock) {
-    if (!t || !t.sheetId || t.status === "passed" || t.status === "failed") return;
+    if (!t || !t.sheetId || t.status === "passed" || t.status === "failed" || off.on) return;
     rpc("lock_tech_sheet", { p_sheet: t.sheetId, p_lock: lock }).catch(() => {});
   }
   setInterval(() => { if (ui.techSheet) lockSheet(ui.techSheet, true); }, 5 * 60 * 1000);
@@ -869,6 +924,9 @@
   // templateId: open (or move the car to) that one of the event's sheets.
   function openTechSheet(x, templateId) {
     const b = ui.event;
+    // Its offline changes conflict with the server's: those are compared first.
+    const pending = sheetOp(b.event.id, x.entry.car_number);
+    if (pending && pending.conflict) return off.on ? say("fail", "Car #" + x.entry.car_number + "'s offline changes conflict with the server's sheet: resolving needs a connection.") : openResolve(pending);
     if (ui.techSheet && ui.techSheet.entry.id !== x.entry.id) lockSheet(ui.techSheet, false);
     const sheets = eventSheets(b);
     const existing = (b.techSheets || []).find((s) => s.carNumber === x.entry.car_number);
@@ -901,9 +959,14 @@
       stickers: null, // list_stickers() for this sheet
       // The team's submission this sheet was opened on: a save after they re-submit is refused.
       seenSubmittedAt: (existing && existing.competitor && existing.competitor.submittedAt) || "",
+      // The server's version it started from ("" none yet): a save after someone else's is a
+      // conflict, never an overwrite (save_tech_sheet's baseUpdatedAt). Kept as the exact text.
+      baseUpdatedAt: (existing && existing.updatedAt) || "",
+      // Saved on this device only (offline), waiting to sync.
+      localSaved: !!(existing && existing.local),
       competitorImported: false,
     };
-    if (existing) loadSheetStickers();
+    loadSheetStickers();
     lockSheet(ui.techSheet, true);
     render();
     setTimeout(() => { const el = document.getElementById("techsheet-panel"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 0);
@@ -917,17 +980,29 @@
       if (finish === "pass" && c.todo && !confirm(c.todo + " line" + (c.todo === 1 ? " isn't" : "s aren't") + " checked yet. Pass car " + t.entry.car_number + " anyway?")) return;
       if (!confirm((finish === "pass" ? "Pass" : "Fail") + " car " + t.entry.car_number + " and sign the sheet as " + (ui.roles.email) + "?")) return;
     }
+    const p = {
+      carNumber: t.entry.car_number, template: t.templateId || undefined, header: t.header, variant: t.variant,
+      // The team's part only when imported here (a file); otherwise it stays as they submitted it.
+      competitor: t.competitorImported ? t.competitor : undefined, seenSubmittedAt: t.seenSubmittedAt, baseUpdatedAt: t.baseUpdatedAt,
+      inspection: { items: t.inspection.items, corrections: t.inspection.corrections || "", pictures: t.inspection.pictures || {} },
+      finish: finish || undefined, signAs: finish && t.signAsChief ? "chief" : undefined,
+    };
+    if (off.on) return saveSheetOffline(t, p);
     try {
-      const s = await rpc("save_tech_sheet", { p_event: ui.event.event.id, p: {
-        carNumber: t.entry.car_number, template: t.templateId || undefined, header: t.header, variant: t.variant,
-        // The team's part only when imported here (a file); otherwise it stays as they submitted it.
-        competitor: t.competitorImported ? t.competitor : undefined, seenSubmittedAt: t.seenSubmittedAt,
-        inspection: { items: t.inspection.items, corrections: t.inspection.corrections || "", pictures: t.inspection.pictures || {} },
-        finish: finish || undefined, signAs: finish && t.signAsChief ? "chief" : undefined,
-      } });
+      let s;
+      try { s = await rpc("save_tech_sheet", { p_event: ui.event.event.id, p }); }
+      catch (e) {
+        if (isNetworkError(e) && Store) { goOffline(true); return saveSheetOffline(t, p); }
+        // Changed on the server since it was opened here: compare and pick, rather than overwrite.
+        if (isConflict(e)) { await sheetConflict(t, p, e); return false; }
+        throw e;
+      }
       t.competitorImported = false;
       t.seenSubmittedAt = (s.competitor && s.competitor.submittedAt) || "";
+      t.baseUpdatedAt = s.updatedAt || "";
+      t.localSaved = false;
       t.savedState = sheetState(t);
+      updateCopySheet(ui.event.event.id, s);
       say("pass", finish ? "Car " + t.entry.car_number + " " + (finish === "pass" ? "passed" : "failed") + (s.record ? " -- recorded in its logbook." : ".") +
         (finish === "pass" ? " Its stickers can be issued below." : "") : "Tech sheet saved.");
       // Passed: the sheet stays open for its stickers.
@@ -958,8 +1033,7 @@
           ui.busy = "Uploading the team's photos: " + (++n) + " of " + Object.keys(images).length + "…"; render();
           const blob = await dataUrlToBlob(images[sha]);
           const real = await sha256Hex(blob);
-          const { error } = await sb.storage.from(TECH_BUCKET).upload(real, blob, { contentType: blob.type || "image/jpeg", upsert: false });
-          if (error && !/exist|duplicate/i.test(error.message || "") && String(error.statusCode) !== "409") throw error;
+          await storeTechPhoto(real, blob);
           // A file edited by hand can name a photo by the wrong hash: point its lines at the real one.
           if (real !== sha) Object.values(data.competitor.items || {}).forEach((it) =>
             (it.photos || []).forEach((p) => { if (p.sha256 === sha) p.sha256 = real; }));
@@ -989,7 +1063,7 @@
     const myRole = (ui.event.staff.find((s) => s.email === ui.roles.email) || {}).role;
     // Filled in any time until scrutineering ends; Passed / Failed only during it.
     const ev = ui.event.event;
-    const open = ui.events.some((e) => e.id === ev.id && e.open);
+    const open = eventOpenNow(ev);
     const over = isoDay(0) > isoDay(1, ev.ends_on);
     const finished = t.status === "passed" || t.status === "failed";
     const editable = !!myRole && !over && !finished;
@@ -1017,6 +1091,7 @@
       (t.inspection.history || []).map((x) => h("p", { class: "verdict warn" }, ["Failed " + fmtDate(x.at) +
         (x.signatures && x.signatures.scrutineer ? " (" + x.signatures.scrutineer.name + ")" : "") + (x.corrections ? " -- corrections: " + x.corrections : "") +
         ". The team re-submitted " + fmtDate(x.resubmittedAt) + ": the lines they changed are marked \"updated by the team\" and need checking again."])),
+      t.localSaved ? h("p", { class: "verdict warn" }, ["Saved on this device (offline): it syncs once back online."]) : null,
       !myRole ? desc("Only the event's staff fill its sheets.") : over ? desc("This event is over: the sheet is read-only.") : finished ? desc("This sheet is signed: it's read-only.")
         : !open ? h("p", { class: c.todo === 0 && c.total ? "library-notice" : "element-desc" }, [(c.todo === 0 && c.total ? "Every line has a result. " : "") +
           "Scrutineering opens " + fmtDate(ev.scrutineering_starts_on) + ": " + (c.todo === 0 && c.total ? "save the sheet now, and finish it as Passed or Failed from then." : "fill the sheet in and save it now -- Passed / Failed can be recorded from then.")]) : null,
@@ -1041,18 +1116,36 @@
   // A helmet / HANS / seat line that passed, with a photo of the item and of
   // its tag, gets a gear sticker; a car that passed, its tech-pass sticker.
   const STICKER_GEAR = Stickers.GEAR;
-  // A sticker read on a tech sheet line (techsheet.js useSticker).
-  const lookupSticker = (code) => rpc("sticker_view", { p_code: code });
+  // A sticker read on a tech sheet line (techsheet.js useSticker), or checked at the event:
+  // offline, from this device's offline copies.
+  async function lookupSticker(code) {
+    if (!off.on) {
+      try { return await rpc("sticker_view", { p_code: code }); } catch (e) { if (!isNetworkError(e)) throw e; goOffline(true); }
+    }
+    const d = await offlineSticker(code);
+    if (d) return d;
+    throw new Error("No connection, and sticker " + Stickers.fmtCode(code) + " isn't in this device's offline copy: offline, only the stickers of the events downloaded here can be checked.");
+  }
   async function loadSheetStickers() {
     const t = ui.techSheet;
-    if (!t || !t.sheetId) return;
-    try { t.stickers = await rpc("list_stickers", { p: { techSheet: t.sheetId } }); } catch (e) { t.stickers = []; }
+    if (!t || (!t.sheetId && !t.localSaved)) return;
+    let list = null;
+    if (!off.on && t.sheetId) {
+      try { list = await rpc("list_stickers", { p: { techSheet: t.sheetId } }); } catch (e) { if (isNetworkError(e)) goOffline(true); else list = []; }
+    }
+    // Offline: the copy's, with those printed offline.
+    if (!list) list = await copyStickers(t.entry.event_id, (s) => (t.sheetId && s.techSheet === t.sheetId) || (s.offline && (s.snapshot || {}).carNumber === t.entry.car_number));
+    t.stickers = list;
     if (ui.techSheet === t) render();
   }
   async function issueSticker(p, then, replacing) {
     if (replacing && !confirm("Issue a new sticker? Sticker " + Stickers.fmtCode(replacing.code) + " becomes void -- peel it off.")) return;
+    if (off.on) return issueStickerOffline(p);
     try {
-      const st = await rpc("issue_sticker", { p });
+      let st;
+      try { st = await rpc("issue_sticker", { p }); }
+      catch (e) { if (isNetworkError(e) && Store) { goOffline(true); return issueStickerOffline(p); } throw e; }
+      addCopySticker(st.event, st);
       if (then) await then();
       Stickers.printDialog([st]);
     } catch (e) { fail(e); }
@@ -1077,7 +1170,7 @@
     const gearRows = TechSheet.lines(t.template, t.variant).flatMap((g) => g.rows).filter((r) => STICKER_GEAR.includes(r.item.gear));
     if (!staff || (!gearRows.length && t.status !== "passed")) return null;
     const title = h("div", { class: "account-card-title" }, ["Stickers"]);
-    if (!t.sheetId) return h("div", { class: "account-card" }, [title, desc("Save the sheet to issue its stickers.")]);
+    if (!t.sheetId && !t.localSaved) return h("div", { class: "account-card" }, [title, desc("Save the sheet to issue its stickers.")]);
     const valid = (t.stickers || []).filter((s) => !s.voidedAt);
     const declared = (t.competitor && t.competitor.items) || {};
     // A valid sticker: print it, or void it. Re-issuing comes once it's void (lost, damaged,
@@ -1089,7 +1182,8 @@
           : voided ? " · sticker " + Stickers.fmtCode(voided.code) + " voided " + fmtDate(voided.voidedAt) + (voided.voidReason ? " (" + voided.voidReason + ")" : "")
           : why ? " · to issue its sticker: " + why : " · no sticker yet"])]),
       st ? btn("Print", () => Stickers.printDialog([st]), "small secondary") : null,
-      st && canIn(st.body, st.discipline, "void_stickers") ? btn("Void", () => voidSticker(st.code), "small secondary") : null,
+      st && !off.on && !st.offline && canIn(st.body, st.discipline, "void_stickers") ? btn("Void", () => voidSticker(st.code), "small secondary") : null,
+      st && st.offline ? h("span", { class: "badge cond", title: "Printed offline: recorded on the server when this device syncs" }, ["not synced"]) : null,
       !st && !why ? btn(voided ? "Re-issue" : "Issue sticker", issue, "small") : null,
     ]);
     const rows = gearRows.map((r) => {
@@ -1107,10 +1201,640 @@
     return h("div", { class: "account-card" }, [
       title,
       desc("Printed QR codes: a gear sticker goes on the helmet, HANS or seat (scanning it shows its photos and certification); the tech pass goes on the car. Save the sheet before issuing."),
+      off.on ? desc("Offline: " + (off.codes[t.entry.event_id] || []).length + " sticker codes left on this device. A sticker printed now is recorded on the server when this device syncs.") : null,
       rows,
       valid.length > 1 ? actions(btn("Print all " + valid.length, () => Stickers.printDialog(valid), "small secondary")) : null,
     ]);
   }
+
+  // ---- Working offline (offline.js, supabase/migrations/20261027000000_offline_scrutineering.sql) ----
+  // An event with a weak connection: "Download for offline" keeps the event (its cars and tech
+  // sheets), the stickers valid there (issued at the event, and the accepted bodies' annual ones
+  // for its season) and copies of their photos on this device -- refreshed every few minutes
+  // while online -- and reserves sticker codes. Offline, the event opens from that copy; saving a
+  // sheet, adding a photo or printing a sticker (under a reserved code) waits in a queue that
+  // syncs, in order, once back online. A sheet changed on the server since this device's version
+  // (another scrutineer, the team re-submitting) is never overwritten: the server refuses the
+  // save as a conflict (baseUpdatedAt), and the scrutineer compares the two, line by line.
+  const me = () => (ui.roles && ui.roles.email) || (ui.session && ui.session.user && ui.session.user.email) || "";
+  const isNetworkError = (e) => !navigator.onLine || (e && e.name === "AuthRetryableFetchError") ||
+    /failed to fetch|networkerror|network request failed|load failed|aborted|timed? ?out/i.test(String((e && (e.message || e.name)) || e || ""));
+  // Whether the event's scrutineering window is open (event_open()): from the server's list,
+  // or offline, from the dates.
+  const eventOpenNow = (ev) => (off.on ? !ev.cancelled_at && isoDay(0) >= ev.scrutineering_starts_on && isoDay(0) <= isoDay(1, ev.ends_on)
+    : ui.events.some((e) => e.id === ev.id && e.open));
+  const isConflict = (e) => !!e && (e.code === "TS409" || /^conflict:/i.test(e.message || "") || /re-submitted car .* since you opened it/i.test(e.message || ""));
+  const when = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
+  function goOffline(on) {
+    if (off.on === on) return;
+    off.on = on;
+    render();
+    if (!on) syncQueue();
+  }
+
+  // ---- The session, for starting offline: who, their roles, bodies and events ----
+  async function saveSnapshot() {
+    if (!Store || SITE !== "scrutineering" || !isStaff()) return;
+    try {
+      await Store.put("kv", "snapshot", { email: me(), userId: ui.session.user.id, roles: ui.roles, garage: ui.garage, bodies: ui.bodies, disciplines: ui.disciplines,
+        accreditations: ui.accreditations, events: ui.events, techTemplates: ui.techTemplates, savedAt: new Date().toISOString() });
+    } catch (e) { /* no offline copy here */ }
+  }
+  async function loadSnapshot(email) {
+    const s = Store && await Store.get("kv", "snapshot").catch(() => null);
+    if (!s || (email && s.email !== email)) return null;
+    Object.assign(ui, { roles: s.roles, garage: s.garage || [], bodies: s.bodies || [], disciplines: s.disciplines || [],
+      accreditations: s.accreditations || [], events: s.events || [], techTemplates: s.techTemplates || [] });
+    return s;
+  }
+  // Starting with no connection (the sign-in can't be renewed): signed in as the device's last
+  // scrutineer, from the snapshot -- until back online.
+  async function startOffline() {
+    if (ui.session || !Store) return;
+    if (navigator.onLine && await reachable()) return;
+    const snap = await loadSnapshot();
+    if (!snap || ui.session) return;
+    ui.session = { user: { id: snap.userId, email: snap.email }, offline: true };
+    off.on = true;
+    await loadOfflineState();
+    render();
+  }
+  // Whether the server answers at all (within a few seconds).
+  async function reachable() {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 5000);
+    try { await fetch(cfg.url + "/auth/v1/health", { headers: { apikey: cfg.anonKey }, signal: ctl.signal }); return true; }
+    catch (e) { return false; }
+    finally { clearTimeout(timer); }
+  }
+  // Back online: a sign-in that started offline is checked for real (else sign in again -- what
+  // waits to sync stays on this device for when they do); then sync and refresh.
+  async function backOnline() {
+    if (!(await reachable())) return;
+    if (ui.session && ui.session.offline) {
+      const { data } = await sb.auth.getSession().catch(() => ({ data: {} }));
+      ui.session = (data && data.session) || null;
+      if (ui.session) await loadAll(); else render();
+      return;
+    }
+    goOffline(false);
+    if (ui.event && !ui.techSheet) openEvent(ui.event.event.id, true);
+  }
+  window.addEventListener("online", () => { backOnline(); });
+  window.addEventListener("offline", () => goOffline(true));
+
+  // ---- What this device keeps ----
+  // "event:<id>": { id, email, bundle (event_bundle), stickers, photos (their SHA-256s), savedAt };
+  // "codes:<id>": { event, email, codes }; the queue: { type: photo | sheet | sticker, event, car, email, ... }.
+  const copyInfo = (c) => ({ savedAt: c.savedAt, cars: c.bundle.entries.length, sheets: (c.bundle.techSheets || []).length, stickers: c.stickers.length,
+    photos: (c.photos || []).length, endsOn: c.bundle.event.ends_on });
+  async function loadOfflineState() {
+    if (!Store) return;
+    try {
+      const kv = await Store.all("kv");
+      off.queue = (await Store.all("queue")).filter((x) => x.value.email === me()).map((x) => Object.assign({}, x.value, { key: x.key }));
+      off.copies = {};
+      off.codes = {};
+      let dropped = false;
+      for (const { key, value } of kv) {
+        if (!value || value.email !== me()) continue;
+        if (key.startsWith("event:")) {
+          // A copy of an event over for two days goes (nothing of it waiting to sync): it holds people's names and photos.
+          if (isoDay(0) > isoDay(2, value.bundle.event.ends_on) && !off.queue.some((q) => q.event === value.id)) {
+            await Store.del("kv", key); await Store.del("kv", "codes:" + value.id); dropped = true;
+          } else off.copies[value.id] = copyInfo(value);
+        }
+        if (key.startsWith("codes:") && off.copies[value.event] !== undefined) off.codes[value.event] = value.codes;
+      }
+      if (dropped) await prunePhotos();
+    } catch (e) { /* no offline store here */ }
+    if (ui.eventServer) showEvent(ui.eventServer);
+  }
+  // Photos no copy and nothing waiting to sync uses any more.
+  async function prunePhotos() {
+    const keep = new Set(off.queue.filter((q) => q.type === "photo").map((q) => q.sha));
+    for (const { key, value } of await Store.all("kv")) if (key.startsWith("event:")) (value.photos || []).forEach((s) => keep.add(s));
+    for (const sha of await Store.keys("photos")) if (!keep.has(sha)) await Store.del("photos", sha);
+  }
+  async function removeCopy(id) {
+    if (off.queue.some((q) => q.event === id)) return say("fail", "Changes made offline at this event haven't synced yet: sync them first.");
+    await Store.del("kv", "event:" + id);
+    await Store.del("kv", "codes:" + id);
+    delete off.copies[id];
+    delete off.codes[id];
+    await prunePhotos();
+    say("pass", "This event's offline copy is removed from this device.");
+  }
+
+  // Every photo a copy shows: the teams' and the scrutineers' on each sheet, and the stickers'.
+  function photoShas(bundle, stickers) {
+    const out = new Set();
+    const add = (list) => (Array.isArray(list) ? list : []).forEach((p) => { if (p && /^[0-9a-f]{64}$/.test(p.sha256 || "")) out.add(p.sha256); });
+    (bundle.techSheets || []).forEach((s) => [s.competitor, s.inspection].forEach((part) => {
+      if (!part) return;
+      Object.values(part.items || {}).forEach((it) => add(it && it.photos));
+      Object.values(part.pictures || {}).forEach(add);
+    }));
+    stickers.forEach((s) => add((s.snapshot || {}).photos));
+    return [...out];
+  }
+  // A photo for the copy: at most 1600 px (tags stay readable), unless it's here already.
+  async function cachePhoto(sha) {
+    if (await Store.get("photos", sha)) return;
+    const { data, error } = await sb.storage.from(TECH_BUCKET).download(sha);
+    if (error) throw error;
+    let blob = data;
+    try {
+      const img = await createImageBitmap(data);
+      const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+      if (scale < 1) {
+        const c = document.createElement("canvas");
+        c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        blob = await new Promise((resolve) => c.toBlob(resolve, "image/jpeg", 0.82)) || data;
+      }
+    } catch (e) { /* kept as it is */ }
+    await Store.put("photos", sha, blob);
+  }
+  // The stickers to check at the event: those issued there, and the accepted bodies' annual ones for its season.
+  async function fetchStickers(ev) {
+    const season = Number(String(ev.starts_on).slice(0, 4));
+    const lists = [await rpc("list_stickers", { p: { event: ev.id } })];
+    for (const body of new Set([ev.body_id].concat(ev.accepted_bodies || []))) lists.push(await rpc("list_stickers", { p: { body, season } }));
+    const seen = new Set();
+    return lists.flat().filter((s) => !seen.has(s.code) && seen.add(s.code));
+  }
+  // Downloads (or refreshes, quiet: in the background) an event's offline copy.
+  const downloading = new Set();
+  async function downloadEvent(id, quiet) {
+    if (!Store) return say("fail", "This browser can't keep an offline copy.");
+    if (downloading.has(id)) return;
+    downloading.add(id);
+    const progress = (text) => { if (!quiet) { ui.busy = text; render(); } };
+    try {
+      progress("Downloading the event…");
+      const bundle = await rpc("event_bundle", { p_event: id });
+      progress("Downloading its stickers…");
+      const stickers = await fetchStickers(bundle.event);
+      // Stickers printed offline here, not synced yet, stay in it.
+      const prev = await Store.get("kv", "event:" + id);
+      ((prev && prev.stickers) || []).forEach((s) => { if (s.offline && !stickers.some((x) => x.code === s.code)) stickers.push(s); });
+      const photos = photoShas(bundle, stickers);
+      const todo = photos.slice();
+      let n = 0, missing = 0;
+      const worker = async () => {
+        while (todo.length) {
+          const sha = todo.shift();
+          try { await cachePhoto(sha); } catch (e) { if (isNetworkError(e)) throw e; missing++; }
+          progress("Downloading photos: " + (++n) + " of " + photos.length + "…");
+        }
+      };
+      await Promise.all([worker(), worker(), worker(), worker()]);
+      const copy = { id, email: me(), bundle, stickers, photos, savedAt: new Date().toISOString() };
+      await Store.put("kv", "event:" + id, copy);
+      off.copies[id] = copyInfo(copy);
+      await topUpCodes(bundle);
+      // What the pages need offline: the QR code libraries and the certification catalog (cached as they load).
+      if (Stickers.loadLibs) Stickers.loadLibs().catch(() => {});
+      TechSheet.loadCatalog().then((c) => { ui.stickerCatalog = c; }, () => {});
+      ui.busy = null;
+      if (!quiet) say("pass", "Downloaded for offline: " + bundle.entries.length + " cars, " + stickers.length + " stickers, " + (photos.length - missing) + " photos" +
+        (missing ? " (" + missing + " couldn't be downloaded)" : "") + ". It's refreshed every few minutes while online.");
+    } catch (e) {
+      ui.busy = null;
+      if (!quiet) fail(e);
+    } finally { downloading.delete(id); }
+    render();
+  }
+  // Sticker codes to print offline (the event's staff): topped up to 30 while online.
+  async function topUpCodes(bundle) {
+    const ev = bundle.event;
+    if (!bundle.staff.some((s) => s.email === me()) || (off.codes[ev.id] || []).length >= 20) return;
+    try {
+      const reserved = await rpc("reserve_sticker_codes", { p_event: ev.id, p_count: 30 - (off.codes[ev.id] || []).length });
+      // (Less those printed offline that haven't synced yet.)
+      const codes = (reserved || []).filter((c) => !off.queue.some((q) => q.type === "sticker" && q.p.code === c));
+      off.codes[ev.id] = codes;
+      await Store.put("kv", "codes:" + ev.id, { event: ev.id, email: me(), codes });
+    } catch (e) { if (isNetworkError(e)) throw e; /* (a server without reserved codes: printing offline isn't available) */ }
+  }
+  async function takeCode(eventId) {
+    const codes = off.codes[eventId] || [];
+    const code = codes.shift();
+    if (code) await Store.put("kv", "codes:" + eventId, { event: eventId, email: me(), codes });
+    return code || null;
+  }
+  // The copy's stickers (match: which), for the tech sheet offline.
+  async function copyStickers(eventId, match) {
+    const copy = Store && await Store.get("kv", "event:" + eventId).catch(() => null);
+    return copy ? copy.stickers.filter(match) : [];
+  }
+  // A sticker issued (or printed offline) into the copy, so it checks offline too.
+  async function addCopySticker(eventId, st) {
+    if (!Store || !eventId || !off.copies[eventId]) return;
+    const copy = await Store.get("kv", "event:" + eventId).catch(() => null);
+    if (!copy) return;
+    copy.stickers = copy.stickers.filter((s) => s.code !== st.code).map((s) => (st.replaces && st.replaces(s) ? Object.assign({}, s, { voidedAt: st.issuedAt, voidReason: "replaced", replacedBy: st.code }) : s));
+    copy.stickers.push(Object.assign({}, st, { replaces: undefined }));
+    await Store.put("kv", "event:" + eventId, copy);
+    off.copies[eventId] = copyInfo(copy);
+  }
+  // A sheet saved (or synced) into the copy.
+  async function updateCopySheet(eventId, s) {
+    if (!Store || !off.copies[eventId]) return;
+    const copy = await Store.get("kv", "event:" + eventId).catch(() => null);
+    if (!copy) return;
+    const list = copy.bundle.techSheets || (copy.bundle.techSheets = []);
+    const i = list.findIndex((x) => x.carNumber === s.carNumber);
+    if (i >= 0) list[i] = s; else list.push(s);
+    if (s.status === "passed" || s.status === "failed") copy.bundle.entries.forEach((x) => { if (x.entry.car_number === s.carNumber) x.entry.tech_status = s.status; });
+    await Store.put("kv", "event:" + eventId, copy);
+    off.copies[eventId] = copyInfo(copy);
+  }
+
+  // ---- The queue: changes waiting to sync ----
+  let opSeq = 0;
+  async function putOp(op) {
+    if (!op.key) op.key = String(Date.now()).padStart(15, "0") + "-" + String(++opSeq).padStart(4, "0");
+    const value = Object.assign({}, op);
+    delete value.key;
+    await Store.put("queue", op.key, value);
+    if (!off.queue.includes(op)) off.queue.push(op);
+    if (ui.eventServer) showEvent(ui.eventServer);
+  }
+  async function dropOp(op) {
+    await Store.del("queue", op.key);
+    off.queue = off.queue.filter((q) => q !== op);
+    if (ui.eventServer) showEvent(ui.eventServer);
+  }
+  const sheetOp = (eventId, car) => off.queue.find((q) => q.type === "sheet" && q.event === eventId && q.car === car);
+  // The event as shown: the server's (or the copy's), with this device's sheets waiting to sync.
+  function showEvent(bundle) {
+    ui.eventServer = bundle;
+    const b = Object.assign({}, bundle, { techSheets: (bundle.techSheets || []).slice(), entries: bundle.entries.map((x) => Object.assign({}, x, { entry: Object.assign({}, x.entry) })) });
+    off.queue.filter((q) => q.type === "sheet" && q.event === bundle.event.id).forEach((q) => {
+      const i = b.techSheets.findIndex((x) => x.carNumber === q.car);
+      // In conflict: the server's stays shown, marked, until the scrutineer picks.
+      if (q.conflict) { if (i >= 0) b.techSheets[i] = Object.assign({}, b.techSheets[i], { conflict: true }); return; }
+      const local = Object.assign({}, q.local, { local: true, syncError: q.error || null });
+      if (i >= 0) b.techSheets[i] = local; else b.techSheets.push(local);
+      if (local.status === "passed" || local.status === "failed") b.entries.forEach((x) => { if (x.entry.car_number === q.car) x.entry.tech_status = local.status; });
+    });
+    ui.event = b;
+  }
+  // Saving a sheet with no connection: onto this device, to sync later (one change per car:
+  // the latest, from the server's version the first one started from).
+  async function saveSheetOffline(t, p) {
+    if (!Store) return say("fail", "No connection, and this browser can't keep changes offline: the sheet isn't saved."), false;
+    const ev = ui.event.event;
+    const old = sheetOp(ev.id, t.entry.car_number);
+    if (old && old.conflict) return say("fail", "Car #" + t.entry.car_number + "'s offline changes conflict with the server's: resolve that first."), false;
+    p = Object.assign({}, p, { offlineAt: new Date().toISOString() });
+    if (p.competitor === undefined) delete p.competitor;
+    // (A team's sheet imported in an earlier offline save stays in.)
+    if (old && old.p.competitor && !p.competitor) p.competitor = old.p.competitor;
+    const signer = p.finish ? signerFor(ev.body_id, ev.discipline) : null;
+    const local = { id: t.sheetId, event: ev.id, carNumber: t.entry.car_number, entry: t.entry.id, templateId: t.templateId, template: t.template, variant: t.variant,
+      header: t.header, competitor: t.competitor, status: p.finish === "pass" ? "passed" : p.finish === "fail" ? "failed" : "inspecting",
+      inspection: Object.assign({}, t.inspection, p.finish ? { result: p.finish, signatures: Object.assign({}, t.inspection.signatures,
+        { scrutineer: { name: signer ? signer.name : me(), license: signer ? signer.license_number || signer.license : null, email: me(), at: p.offlineAt } }) } : {}),
+      updatedAt: old ? old.base : t.baseUpdatedAt, inspectedBy: me(), inspectedAt: p.offlineAt };
+    const op = old || { type: "sheet", event: ev.id, car: t.entry.car_number, email: me(), base: t.baseUpdatedAt };
+    Object.assign(op, { p, local: JSON.parse(JSON.stringify(local)), at: p.offlineAt, error: null });
+    await putOp(op);
+    t.competitorImported = false;
+    t.localSaved = true;
+    if (p.finish) { t.status = local.status; t.inspection.result = p.finish; }
+    t.savedState = sheetState(t);
+    say("pass", (p.finish ? "Car " + t.entry.car_number + " " + (p.finish === "pass" ? "passed" : "failed") + " -- " : "") +
+      "saved on this device (offline): it syncs once back online." + (p.finish === "pass" ? " Its stickers can be printed below." : ""));
+    if (p.finish === "fail") ui.techSheet = null;
+    render();
+    return true;
+  }
+  // A sticker printed offline: under one of the codes reserved for this event, recorded on the
+  // server when this device syncs (until then it's only in this device's offline copy).
+  async function issueStickerOffline(p) {
+    const t = ui.techSheet, ev = ui.event.event;
+    if (!Store) return say("fail", "No connection: the sticker can't be issued.");
+    if (sheetDirty()) return say("fail", "Save the sheet first.");
+    const code = await takeCode(ev.id);
+    if (!code) return say("fail", "No sticker codes left on this device to print offline: they're reserved when the event is downloaded for offline (online).");
+    const now = new Date().toISOString();
+    const disc = (ui.disciplines || []).find((d) => d.body_id === ev.body_id && d.id === ev.discipline);
+    const sameItem = (s) => !s.voidedAt && s.kind === p.kind && (p.kind === "car" || s.item === p.item);
+    const st = { code, kind: p.kind, item: p.item || null, techSheet: t.sheetId, event: ev.id, eventName: ev.name, body: ev.body_id, bodyName: bodyName(ev.body_id),
+      discipline: ev.discipline, disciplineName: disciplineName(ev.body_id, ev.discipline), disciplineShort: ev.discipline ? (disc && disc.short) || String(ev.discipline).toUpperCase() : "",
+      season: p.kind === "gear" ? Number(String(ev.starts_on).slice(0, 4)) : null, snapshot: localSnapshot(t, p), issuedBy: me(), issuedAt: now, voidedAt: null, offline: true };
+    await putOp({ type: "sticker", event: ev.id, car: t.entry.car_number, email: me(), at: now,
+      p: Object.assign({ kind: p.kind, item: p.item, label: p.label, code, offlineAt: now }, t.sheetId ? { techSheet: t.sheetId } : { event: ev.id, carNumber: t.entry.car_number }) });
+    // The one it replaces is void, as the server will have it.
+    (t.stickers || []).forEach((s) => { if (sameItem(s)) Object.assign(s, { voidedAt: now, voidReason: "replaced", replacedBy: code }); });
+    t.stickers = (t.stickers || []).concat(st);
+    await addCopySticker(ev.id, Object.assign({}, st, { replaces: sameItem }));
+    Stickers.printDialog([st]);
+    render();
+  }
+  // What a sticker printed offline vouches for -- as the server's issue_sticker snapshots it.
+  function localSnapshot(t, p) {
+    const h = t.header || {};
+    if (p.kind === "car") {
+      const pics = [].concat(((t.competitor || {}).pictures || {}).car || [], (t.inspection.pictures || {}).car || []);
+      return { carNumber: t.entry.car_number, class: h.class, make: h.make, model: h.model, year: h.year, driver: h.driver, codriver: h.codriver,
+        photos: pics.filter((x) => x && x.sha256).map((x) => ({ sha256: x.sha256, kind: "car" })) };
+    }
+    const res = t.inspection.items[p.item] || {}, dec = ((t.competitor || {}).items || {})[p.item] || {};
+    const row = TechSheet.lines(t.template, t.variant).flatMap((g) => g.rows).find((r) => r.key === p.item);
+    const gear = Object.assign({}, dec.gear, res.gear);
+    const photos = [].concat(dec.photos || [], res.photos || []).filter((x) => !(res.removedPhotos || []).includes(x.sha256)).map((x) => ({ sha256: x.sha256, kind: x.kind === "tag" ? "tag" : "item" }));
+    const codriver = /\.codriver$/.test(p.item);
+    return { category: gear.category || (row && row.item.gear), label: p.label || p.item, occupant: codriver ? "codriver" : /\.driver$/.test(p.item) ? "driver" : null,
+      gear, photos, carNumber: t.entry.car_number, driver: codriver ? h.codriver : h.driver };
+  }
+
+  // ---- Syncing, in order (photos first: the sheets and stickers use them) ----
+  async function syncQueue() {
+    if (off.syncing || off.on || !Store || !ui.session || ui.session.offline) return;
+    const waiting = off.queue.filter((q) => !q.conflict && !q.error);
+    if (!waiting.length) return;
+    off.syncing = true;
+    render();
+    // A car with a change that couldn't sync: its later ones wait too (its stickers need its sheet).
+    const blocked = new Set(off.queue.filter((q) => q.conflict || q.error).map((q) => q.event + "#" + q.car));
+    let done = 0;
+    try {
+      for (const q of waiting.filter((x) => x.type === "photo").concat(waiting.filter((x) => x.type !== "photo"))) {
+        const car = q.event + "#" + q.car;
+        if (q.type !== "photo" && blocked.has(car)) continue;
+        try {
+          if (q.type === "photo") await syncPhoto(q);
+          else if (q.type === "sheet") await syncSheet(q);
+          else await syncSticker(q);
+          await dropOp(q);
+          done++;
+        } catch (e) {
+          if (isNetworkError(e)) { off.on = true; break; }
+          if (q.type === "sheet" && isConflict(e)) {
+            // (Its earlier sync went through, only the answer was lost: nothing to resolve.)
+            if (await sameAsServer(q)) { await dropOp(q); done++; continue; }
+            q.conflict = e.message;
+          } else q.error = (e && e.message) || String(e);
+          await putOp(q);
+          blocked.add(car);
+        }
+      }
+    } finally { off.syncing = false; }
+    if (done) {
+      say("pass", done + " change" + (done === 1 ? "" : "s") + " made offline synced.");
+      if (ui.event && !ui.techSheet && !ui.resolve) await openEvent(ui.event.event.id, true);
+      loadEventsOnly();
+    }
+    render();
+  }
+  async function syncPhoto(q) {
+    const blob = await Store.get("photos", q.sha);
+    if (!blob) return;
+    const { error } = await sb.storage.from(TECH_BUCKET).upload(q.sha, blob, { contentType: blob.type || "image/jpeg", upsert: false });
+    if (error && !/exist|duplicate/i.test(error.message || "") && String(error.statusCode) !== "409") throw error;
+  }
+  async function syncSheet(q) {
+    const s = await rpc("save_tech_sheet", { p_event: q.event, p: Object.assign({}, q.p, { baseUpdatedAt: q.base }) });
+    await updateCopySheet(q.event, s);
+    const t = ui.techSheet;
+    if (t && t.entry.event_id === q.event && t.entry.car_number === q.car) Object.assign(t, { baseUpdatedAt: s.updatedAt || "", sheetId: s.id, status: s.status, localSaved: false });
+  }
+  async function syncSticker(q) {
+    const st = await rpc("issue_sticker", { p: q.p });
+    await addCopySticker(q.event, st);
+    const t = ui.techSheet;
+    if (t && t.stickers) t.stickers = t.stickers.map((s) => (s.code === st.code ? st : s));
+  }
+  // The server's sheet for a car, now.
+  async function serverSheet(eventId, car) {
+    const bundle = await rpc("event_bundle", { p_event: eventId });
+    if (ui.event && ui.event.event.id === eventId) showEvent(bundle);
+    return (bundle.techSheets || []).find((s) => s.carNumber === car) || null;
+  }
+  const sheetContent = (s) => stable({ header: s.header || {}, variant: s.variant || null, items: (s.inspection || {}).items || {}, corrections: (s.inspection || {}).corrections || "",
+    pictures: (s.inspection || {}).pictures || {} });
+  async function sameAsServer(q) {
+    const s = await serverSheet(q.event, q.car).catch(() => null);
+    if (!s || sheetContent(s) !== sheetContent({ header: q.p.header, variant: q.p.variant, inspection: q.p.inspection })) return false;
+    if (q.p.finish && s.status !== (q.p.finish === "pass" ? "passed" : "failed")) return false;
+    await updateCopySheet(q.event, s);
+    return true;
+  }
+  // A save refused online because the sheet changed meanwhile: kept as a conflict to resolve.
+  async function sheetConflict(t, p, e) {
+    const ev = ui.event.event;
+    const old = sheetOp(ev.id, t.entry.car_number);
+    const op = old || { type: "sheet", event: ev.id, car: t.entry.car_number, email: me(), base: t.baseUpdatedAt };
+    Object.assign(op, { p, conflict: e.message, error: null, at: new Date().toISOString(),
+      local: { carNumber: t.entry.car_number, templateId: t.templateId, template: t.template, variant: t.variant, header: t.header, competitor: t.competitor,
+        inspection: JSON.parse(JSON.stringify(t.inspection)), status: t.status, updatedAt: t.baseUpdatedAt } });
+    if (Store) await putOp(op);
+    closeTechSheet();
+    await openResolve(op);
+  }
+
+  // ---- Resolving a conflict: the server's version and this device's, line by line ----
+  // ui.resolve: { op, server (its sheet now), rows: [{ id, kind, key, label, theirs, mine }], choice: { id: "theirs" | "mine" }, finish }
+  async function openResolve(op) {
+    let server;
+    try { server = await serverSheet(op.event, op.car); }
+    catch (e) { return isNetworkError(e) ? say("fail", "Resolving needs a connection: it compares with the server's sheet.") : fail(e); }
+    ui.resolve = { op, server, rows: server ? sheetDiffs(server, op.local) : [], choice: {}, finish: false };
+    render();
+    setTimeout(() => { const el = document.getElementById("resolve-panel"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 0);
+  }
+  const RESULT_LABEL = { pass: "Pass", fail: "Fail", na: "N/A" };
+  function lineSummary(it) {
+    if (!it) return "not checked";
+    return [RESULT_LABEL[it.result] || "not checked", it.note ? "“" + it.note + "”" : null, (it.photos || []).length ? it.photos.length + " photo" + (it.photos.length === 1 ? "" : "s") : null,
+      it.gear ? "gear details entered" : null, it.sticker ? "sticker " + Stickers.fmtCode(it.sticker.code) : null].filter(Boolean).join(" · ");
+  }
+  function sheetDiffs(server, mine) {
+    const rows = [];
+    const tpl = server.template || mine.template || {};
+    const differ = (a, b) => stable(a === undefined ? null : a) !== stable(b === undefined ? null : b);
+    const hs = server.header || {}, hm = mine.header || {};
+    (tpl.header || []).map((f) => f.id).concat(Object.keys(hs), Object.keys(hm)).filter((k, i, all) => all.indexOf(k) === i).forEach((k) => {
+      if (differ(hs[k] || "", hm[k] || "")) rows.push({ id: "h:" + k, kind: "header", key: k, label: ((tpl.header || []).find((f) => f.id === k) || {}).label || k, theirs: hs[k] || "—", mine: hm[k] || "—" });
+    });
+    if (differ(server.variant, mine.variant)) rows.push({ id: "variant", kind: "variant", label: "Sheet variant", theirs: server.variant || "—", mine: mine.variant || "—" });
+    const is = (server.inspection || {}).items || {}, im = (mine.inspection || {}).items || {};
+    const labels = {};
+    TechSheet.lines(tpl, server.variant || mine.variant).forEach((g) => g.rows.forEach((r) => { labels[r.key] = (g.section && g.section.title ? g.section.title + " -- " : "") + r.label; }));
+    Object.keys(labels).concat(Object.keys(is), Object.keys(im)).filter((k, i, all) => all.indexOf(k) === i).forEach((k) => {
+      if (differ(is[k], im[k])) rows.push({ id: "i:" + k, kind: "item", key: k, label: labels[k] || k, theirs: lineSummary(is[k]), mine: lineSummary(im[k]) });
+    });
+    const cs = (server.inspection || {}).corrections || "", cm = (mine.inspection || {}).corrections || "";
+    if (cs !== cm) rows.push({ id: "corrections", kind: "corrections", label: "Corrections required", theirs: cs || "—", mine: cm || "—" });
+    const ps = (server.inspection || {}).pictures || {}, pm = (mine.inspection || {}).pictures || {};
+    if (differ(ps, pm)) {
+      const n = (x) => Object.values(x).reduce((a, l) => a + (Array.isArray(l) ? l.length : 0), 0);
+      rows.push({ id: "pictures", kind: "pictures", label: "Car photos", theirs: n(ps) + " photos", mine: n(pm) + " photos" });
+    }
+    return rows;
+  }
+  async function saveResolved() {
+    const r = ui.resolve, server = r.server, mine = r.op.local, op = r.op;
+    if (r.rows.some((row) => !r.choice[row.id])) return say("fail", "Pick, for each difference, which version to keep.");
+    const header = Object.assign({}, server.header);
+    const insp = server.inspection || {};
+    const items = JSON.parse(JSON.stringify(insp.items || {}));
+    let corrections = insp.corrections || "", pictures = insp.pictures || {}, variant = server.variant;
+    r.rows.filter((row) => r.choice[row.id] === "mine").forEach((row) => {
+      if (row.kind === "header") { if (mine.header[row.key] == null) delete header[row.key]; else header[row.key] = mine.header[row.key]; }
+      if (row.kind === "variant") variant = mine.variant;
+      if (row.kind === "item") { const it = (mine.inspection.items || {})[row.key]; if (it) items[row.key] = it; else delete items[row.key]; }
+      if (row.kind === "corrections") corrections = mine.inspection.corrections || "";
+      if (row.kind === "pictures") pictures = mine.inspection.pictures || {};
+    });
+    const finish = r.finish && op.p.finish ? op.p.finish : undefined;
+    if (finish === "pass" && TechSheet.counts(server.template, variant, { items }).fail) return say("fail", "Lines are marked Fail in the version picked: it can't be signed off as Passed.");
+    const p = { carNumber: op.car, template: server.templateId || undefined, header, variant, seenSubmittedAt: (server.competitor && server.competitor.submittedAt) || "",
+      inspection: { items, corrections, pictures }, baseUpdatedAt: server.updatedAt || "", finish, signAs: finish ? op.p.signAs : undefined,
+      // (Signed when it was, offline.)
+      offlineAt: finish ? op.p.offlineAt : undefined };
+    try {
+      const s = await rpc("save_tech_sheet", { p_event: op.event, p });
+      if (Store && op.key) await dropOp(op);
+      await updateCopySheet(op.event, s);
+      ui.resolve = null;
+      say("pass", "Car #" + op.car + "'s sheet saved with the versions you picked" + (finish ? ", and signed off as " + (finish === "pass" ? "Passed" : "Failed") : "") + ".");
+      await openEvent(op.event, true);
+      syncQueue();
+    } catch (e) {
+      if (isConflict(e)) { say("fail", "It changed on the server again meanwhile: compare again."); return openResolve(op); }
+      fail(e);
+    }
+  }
+  async function discardOp(op, question) {
+    if (question && !confirm(question)) return;
+    await dropOp(op);
+    if (ui.resolve && ui.resolve.op === op) ui.resolve = null;
+    say("pass", "Discarded.");
+    if (ui.event) openEvent(ui.event.event.id, true);
+    syncQueue();
+  }
+  function renderResolve() {
+    const r = ui.resolve, op = r.op, s = r.server;
+    const title = h("div", { class: "account-card-title" }, ["Car #" + op.car + " -- this device's changes and the server's"]);
+    const close = btn("Back to the event", () => { ui.resolve = null; render(); }, "small secondary");
+    const discard = btn("Discard this device's changes", () => discardOp(op, "Discard car #" + op.car + "'s changes made on this device? The server's sheet stays as it is."), "small secondary");
+    if (!s) return h("div", { class: "account-card", id: "resolve-panel" }, [title, desc("The server has no sheet for this car any more."), actions(discard, close)]);
+    const by = s.inspectedBy || s.submittedBy;
+    const intro = desc("The sheet changed on the server since this device's version (" + [by ? "by " + by : null, s.updatedAt ? when(s.updatedAt) : null].filter(Boolean).join(", ") +
+      "). Nothing was overwritten: pick, for each difference, which version to keep, then save.");
+    if (s.status === "passed" || s.status === "failed") {
+      const sig = ((s.inspection || {}).signatures || {}).scrutineer;
+      return h("div", { class: "account-card", id: "resolve-panel" }, [title,
+        h("p", { class: "verdict warn" }, ["The server's sheet is signed off as " + (s.status === "passed" ? "Passed" : "Failed") + (sig ? " by " + sig.name + (sig.at ? ", " + when(sig.at) : "") : "") +
+          ": this device's changes can't go on a signed sheet. What differs:"]),
+        r.rows.length ? h("ul", { class: "account-records" }, r.rows.map((row) => h("li", {}, [h("strong", {}, [row.label]), ": server -- " + row.theirs + "; this device -- " + row.mine]))) : desc("Only the sign-off."),
+        actions(discard, close)]);
+    }
+    const pickAll = (v) => { r.rows.forEach((row) => { r.choice[row.id] = v; }); render(); };
+    const choice = (row, v, text) => btn(text, () => { r.choice[row.id] = v; render(); }, r.choice[row.id] === v ? "small" : "small secondary");
+    const verdict = op.p.finish ? (op.p.finish === "pass" ? "Passed" : "Failed") : null;
+    return h("div", { class: "account-card", id: "resolve-panel" }, [title, intro,
+      r.rows.length ? actions(btn("Keep all the server's", () => pickAll("theirs"), "small secondary"), btn("Keep all this device's", () => pickAll("mine"), "small secondary")) : desc("The lines are the same: only the sign-off differs."),
+      r.rows.map((row) => h("div", { class: "account-entry resolve-row" }, [
+        h("span", { class: "account-entry-main" }, [h("strong", {}, [row.label]),
+          h("span", { class: "element-desc" }, [" · server: " + row.theirs]), h("span", { class: "element-desc" }, [" · this device: " + row.mine])]),
+        choice(row, "theirs", "Server's"), choice(row, "mine", "This device's"),
+      ])),
+      // A verdict is never merged on its own: the scrutineer ticks it.
+      verdict ? h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: r.finish, onchange: (e) => { r.finish = e.target.checked; } }),
+        " Also sign it off as " + verdict + ", as done on this device" + (op.p.offlineAt ? " (" + when(op.p.offlineAt) + ")" : "")]) : null,
+      actions(btn("Save", saveResolved, "small"), discard, close),
+    ]);
+  }
+
+  // ---- On the event's page ----
+  // Checking a sticker at the event (online, or from the offline copy).
+  function checkSticker() {
+    Stickers.scanDialog(async (code) => {
+      let d;
+      try { d = await lookupSticker(code); } catch (e) { return fail(e); }
+      if (!d) return say("fail", "There's no sticker " + Stickers.fmtCode(code) + " -- check the code printed under the QR code.");
+      if (d.kind === "gear" && !ui.stickerCatalog) ui.stickerCatalog = await TechSheet.loadCatalog().catch(() => null);
+      const overlay = h("div", { class: "sticker-dialog-backdrop", onclick: (e) => { if (e.target === overlay) overlay.remove(); } }, [h("div", { class: "sticker-dialog", role: "dialog", "aria-label": "Sticker" }, [
+        Stickers.view(d, { photoUrl: techPhotoUrl, standardLabel: stickerStandard, lines: TechSheet.lines,
+          onVoid: !off.on && !d.offlineAsOf && d.staff && canIn(d.body, d.discipline, "void_stickers") ? () => { overlay.remove(); voidSticker(d.code); } : null }),
+        actions(btn("Close", () => overlay.remove(), "small secondary")),
+      ])]);
+      document.body.append(overlay);
+    });
+  }
+  // A sticker from the offline copies on this device, shaped like sticker_view()'s answer.
+  async function offlineSticker(code) {
+    if (!Store) return null;
+    const copies = (await Store.all("kv").catch(() => [])).filter((x) => x.key.startsWith("event:")).map((x) => x.value);
+    for (const c of copies) {
+      const s = c.stickers.find((x) => x.code === code);
+      if (!s) continue;
+      const ev = c.bundle.event;
+      const atEvent = s.event === ev.id ? ev : null;
+      const status = s.voidedAt ? "void" : s.kind === "gear" && s.season && s.season < new Date().getFullYear() ? "expired"
+        : s.kind === "car" && atEvent && isoDay(0) > isoDay(1, atEvent.ends_on) ? "expired" : "valid";
+      const sh = s.kind === "car" ? (c.bundle.techSheets || []).find((x) => (s.techSheet && x.id === s.techSheet) || x.carNumber === (s.snapshot || {}).carNumber) : null;
+      const acc = (ui.accreditations || []).find((a) => a.email === s.issuedBy && a.body_id === s.body);
+      return Object.assign({}, s, { status, staff: true, inspector: { name: acc ? acc.name : s.issuedBy, license: acc ? acc.license_number : null },
+        event: atEvent ? { name: atEvent.name, location: atEvent.location, startsOn: atEvent.starts_on, endsOn: atEvent.ends_on } : null,
+        sheet: sh ? { status: sh.status, variant: sh.variant, template: sh.template, signatures: (sh.inspection || {}).signatures || {},
+          results: Object.fromEntries(Object.entries((sh.inspection || {}).items || {}).map(([k, v]) => [k, v && v.result])) } : undefined,
+        offlineAsOf: s.offline ? s.issuedAt : c.savedAt });
+    }
+    return null;
+  }
+  // The event's offline card: download / refresh, what's kept, what waits to sync.
+  function renderOffline(b, myRole) {
+    if (!Store || SITE !== "scrutineering") return [];
+    const ev = b.event, copy = off.copies[ev.id];
+    const mine = off.queue.filter((q) => q.event === ev.id);
+    const waiting = mine.filter((q) => !q.conflict && !q.error).length;
+    const out = [];
+    if (off.on) out.push(h("p", { class: "verdict warn" }, [copy
+      ? "Offline: working from this device's copy of the event (from " + when(copy.savedAt) + "). What you save stays on this device and syncs once back online."
+      : "Offline: this event isn't downloaded on this device, so its sheets can't be saved here -- download it for offline once back online."]));
+    out.push(h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title" }, ["Offline copy"]),
+      copy ? desc([copy.cars + " cars", copy.sheets + " tech sheets", copy.stickers + " stickers", copy.photos + " photos",
+        myRole ? (off.codes[ev.id] || []).length + " sticker codes to print offline" : null, "as of " + when(copy.savedAt)].filter(Boolean).join(" · "))
+        : desc("Download this event to work without a connection: its cars and tech sheets, the stickers valid here and their photos stay on this device, refreshed every few minutes while online."),
+      waiting ? desc(waiting + " change" + (waiting === 1 ? "" : "s") + " made offline waiting to sync" + (off.syncing ? " -- syncing…" : off.on ? ", once back online." : ".")) : null,
+      actions(
+        !off.on ? btn(copy ? "Refresh now" : "Download for offline", () => downloadEvent(ev.id), copy ? "small secondary" : "small") : null,
+        waiting && !off.on && !off.syncing ? btn("Sync now", syncQueue, "small") : null,
+        copy && !off.on ? btn("Remove from this device", () => removeCopy(ev.id), "small secondary") : null),
+    ]));
+    // What couldn't sync: a conflict to resolve, or the server's reason.
+    const stuck = mine.filter((q) => q.conflict || q.error);
+    if (stuck.length) out.push(h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title" }, ["Couldn't sync (" + stuck.length + ")"]),
+      stuck.map((q) => h("div", { class: "account-entry" }, [
+        h("span", { class: "account-entry-main" }, [h("strong", {}, [q.type === "sticker" ? "Sticker " + Stickers.fmtCode(q.p.code) + ", car #" + q.car : q.type === "photo" ? "A photo" : "Car #" + q.car + "'s sheet"]),
+          h("span", { class: "element-desc" }, [" · " + (q.conflict ? "it changed on the server since this device's version" : q.error)])]),
+        q.conflict ? btn("Compare and resolve", () => (off.on ? say("fail", "Resolving needs a connection.") : openResolve(q)), "small") : null,
+        q.error && !off.on ? btn("Retry", async () => { q.error = null; await putOp(q); syncQueue(); }, "small secondary") : null,
+        btn("Discard", () => discardOp(q, q.type === "sticker" ? "Discard sticker " + Stickers.fmtCode(q.p.code) + "? It was printed offline and isn't recorded: peel it off the item." :
+          q.type === "sheet" ? "Discard car #" + q.car + "'s changes made on this device?" : "Discard this photo?"), "small secondary"),
+      ])),
+    ]));
+    return out;
+  }
+  // Every minute, online: sync what waits, check a connection that came back, and refresh the
+  // offline copies (every 5 minutes) of the events not over.
+  setInterval(async () => {
+    if (!ui.session || !Store) return;
+    if (off.on || ui.session.offline) { if (navigator.onLine) backOnline(); return; }
+    syncQueue();
+    for (const [id, c] of Object.entries(off.copies)) {
+      if (Date.now() - Date.parse(c.savedAt) > 5 * 60 * 1000 && isoDay(0) <= isoDay(1, c.endsOn)) await downloadEvent(id, true);
+    }
+  }, 60 * 1000);
 
   function progress(e) {
     const done = e.passed + e.failed;
@@ -1357,7 +2081,7 @@
     const ev = b.event;
     const organizer = isOrganizer(ev.body_id);
     const myRole = (b.staff.find((s) => s.email === ui.roles.email) || {}).role;
-    const open = ui.events.some((e) => e.id === ev.id && e.open);
+    const open = eventOpenNow(ev);
     const q = entryFilter.trim().toLowerCase();
     const matches = (x) => !q || [x.entry.car_number, x.entry.driver, x.entry.codriver, x.logbook && x.logbook.digital_number, x.logbook && x.logbook.make, x.logbook && x.logbook.model]
       .some((s) => s && String(s).toLowerCase().includes(q));
@@ -1382,6 +2106,11 @@
         teamSheet(x) ? h("span", { class: "badge info", title: "The team pre-filled its tech sheet" }, ["team sheet"]) : null,
         (() => { const s = (b.techSheets || []).find((y) => y.carNumber === x.entry.car_number);
           return s && s.lockedBy && s.lockedBy !== ui.roles.email ? h("span", { class: "badge cond", title: "Its sheet is open on " + s.lockedBy + "'s device" }, ["open: " + s.lockedBy]) : null; })(),
+        // Changed on this device, not synced yet -- or in conflict with the server's.
+        (() => { const s = (b.techSheets || []).find((y) => y.carNumber === x.entry.car_number);
+          return !s ? null : s.conflict ? h("span", { class: "badge req", title: "Changed on the server since this device's version: compare and resolve (above)" }, ["conflict"])
+            : s.syncError ? h("span", { class: "badge req", title: s.syncError }, ["didn't sync"])
+            : s.local ? h("span", { class: "badge cond", title: "Saved on this device (offline): it syncs once back online" }, ["not synced"]) : null; })(),
         // Its sheet's progress, until it's signed off.
         x.entry.tech_status === "pending" && sheetProgress(x) ? (() => { const c = sheetProgress(x).c; return h("span", { class: "badge " + (c.fail ? "req" : c.todo ? "info" : "pass") },
           [c.todo ? c.total - c.todo + "/" + c.total + " checked" : "all checked" + (c.fail ? " · " + c.fail + " fail" : "")]); })() : null,
@@ -1395,7 +2124,8 @@
     const filterBox = h("div", { class: "field-row" }, [field("Find a car", input({ value: entryFilter, "data-id": "entry-filter", placeholder: "car number, driver, car…" }, (v) => { entryFilter = v; render(); restoreFocus("entry-filter"); }))]);
     const out = [
       actions(btn("← All events", () => leaveTechSheet(() => { ui.event = null; render(); }), "small secondary"),
-        kind === "scrutineer" && !ui.techSheet ? btn("Print the event's stickers", printEventStickers, "small secondary") : null),
+        kind === "scrutineer" && !ui.techSheet ? btn("🔳 Check a sticker", checkSticker, "small secondary") : null,
+        kind === "scrutineer" && !ui.techSheet && !off.on ? btn("Print the event's stickers", printEventStickers, "small secondary") : null),
       h("h3", { class: "account-event-title" }, [ev.name + " -- " + bodyName(ev.body_id) + (ev.discipline ? " " + disciplineName(ev.body_id, ev.discipline) : "")]),
       desc([fmtDate(ev.starts_on) + (ev.ends_on !== ev.starts_on ? " to " + fmtDate(ev.ends_on) : ""), ev.location,
         "accepts logbooks from " + ev.accepted_bodies.map(bodyName).join(", "),
@@ -1482,6 +2212,9 @@
     const toSign = pending.filter(allChecked);
     const passed = entries.filter((x) => x.entry.tech_status === "passed");
     const failed = entries.filter((x) => x.entry.tech_status === "failed");
+    // Offline: the copy, what waits to sync; a conflict being resolved: only that.
+    if (ui.resolve && ui.resolve.op.event === ev.id) return out.concat(renderResolve());
+    if (!ui.techSheet) out.push(renderOffline(b, myRole));
     // A car's sheet open (or its sheet being picked): only that, until it's closed.
     if (ui.techSheetPick && ui.techSheetPick.entry.event_id === ev.id) return out.concat(renderTechSheetPick());
     if (ui.techSheet && ui.techSheet.entry.event_id === ev.id) return out.concat(renderTechSheet());
@@ -1915,7 +2648,13 @@
         return loadPublic(d.logbook.publicToken);
       }
       if (d && d.kind === "gear") TechSheet.loadCatalog().then((c) => { if (ui.stickerView) { ui.stickerView.catalog = c; render(); } }, () => {});
-    } catch (e) { ui.stickerView.data = null; fail(e); }
+    } catch (e) {
+      // No connection: from this device's offline copies, if it has one with this sticker.
+      const d = isNetworkError(e) ? await offlineSticker(code).catch(() => null) : null;
+      ui.stickerView.data = d;
+      if (d && d.kind === "gear") TechSheet.loadCatalog().then((c) => { if (ui.stickerView) { ui.stickerView.catalog = c; render(); } }, () => {});
+      if (!d) fail(isNetworkError(e) ? new Error("No connection, and this sticker isn't in this device's offline copy.") : e);
+    }
     render();
   }
   function stickerStandard(cat, id) {
@@ -1939,7 +2678,7 @@
     if (!v.data) return h("p", { class: "verdict fail" }, ["There's no sticker " + Stickers.fmtCode(v.code) + " -- check the code printed under the QR code."]);
     const d = v.data;
     return Stickers.view(d, { photoUrl: techPhotoUrl, standardLabel: stickerStandard, lines: TechSheet.lines,
-      onVoid: d.staff && ui.roles && canIn(d.body, d.discipline, "void_stickers") ? () => voidSticker(d.code) : null,
+      onVoid: d.staff && !d.offlineAsOf && ui.roles && canIn(d.body, d.discipline, "void_stickers") ? () => voidSticker(d.code) : null,
       onOpenLogbook: d.logbook && d.logbook.publicToken ? () => { ui.stickerView = null; loadPublic(d.logbook.publicToken); } : null });
   }
 
@@ -1958,6 +2697,11 @@
     const list = disciplinesOf(body);
     return list.length ? list.filter((d) => canIn(body, d.id, "issue_annual_stickers")) : null;
   }
+  // A body's stickers from before it had disciplines (discipline null): to see and void, not to issue.
+  const NO_DISCIPLINE = "__none";
+  // The discipline to ask the server for ("" for none).
+  const annualDisc = (a) => (a.discipline === NO_DISCIPLINE ? "" : a.discipline || "");
+  const annualDiscName = (a) => (a.discipline === NO_DISCIPLINE ? "(no discipline)" : disciplineName(a.body, a.discipline));
   // a.discipline: the discipline picked ("" for a body without any); ready once it's set.
   const annualReady = (a) => !!a.body && (annualDisciplines(a.body) === null || !!a.discipline);
   function annualPickBody(a, body) {
@@ -1980,8 +2724,8 @@
     try {
       // (Applications for the discipline picked.)
       a.applications = (await rpc("list_sticker_applications", { p_body: a.body, p_status: "pending" }))
-        .filter((x) => (x.discipline || "") === (a.discipline || ""));
-      a.stickers = await rpc("list_stickers", { p: Object.assign({ body: a.body, discipline: a.discipline || "" }, a.allSeasons ? {} : { season: a.season }) });
+        .filter((x) => (x.discipline || "") === annualDisc(a));
+      a.stickers = await rpc("list_stickers", { p: Object.assign({ body: a.body, discipline: annualDisc(a) }, a.allSeasons ? {} : { season: a.season }) });
       // Who submitted the application for each sticker issued from an application (PassTech), to search by.
       a.submitters = {};
       (await rpc("list_sticker_applications", { p_body: a.body, p_status: "issued" })).forEach((x) => { if (x.stickerCode) a.submitters[x.stickerCode] = x.submittedBy; });
@@ -2013,7 +2757,7 @@
     render();
   }
   // "SCCNH Autocross 2026" / "ARA 2026".
-  const annualLabel = (a) => [bodyName(a.body), disciplineName(a.body, a.discipline), a.season].filter(Boolean).join(" ");
+  const annualLabel = (a) => [bodyName(a.body), annualDiscName(a), a.season].filter(Boolean).join(" ");
   // A new item to fill in: a gear type alone, or from a sticker / an application.
   function annualItem(category, from) {
     const a = ui.annual;
@@ -2047,7 +2791,7 @@
     const photos = (dec.photos || []).filter((p) => !removed.includes(p.sha256)).concat(res.photos || []);
     if (!photos.some((p) => p.kind === "tag") || !photos.some((p) => p.kind !== "tag")) return say("fail", "A sticker needs a photo of the whole item and one of its tag or label.");
     try {
-      const st = await rpc("issue_sticker", { p: { kind: "gear", annual: true, body: a.body, discipline: a.discipline || undefined, season: a.season, gear: res.gear || dec.gear,
+      const st = await rpc("issue_sticker", { p: { kind: "gear", annual: true, body: a.body, discipline: annualDisc(a) || undefined, season: a.season, gear: res.gear || dec.gear,
         photos, label: Stickers.GEAR_LABEL[it.category], owner: it.owner || undefined,
         replaces: (res.sticker && res.sticker.code) || it.replaces || undefined, application: it.application || undefined } });
       a.item = null;
@@ -2069,21 +2813,27 @@
     const discs = a.body ? annualDisciplines(a.body) : null;
     const out = [h("div", { class: "field-row" }, [
       field("Sanctioning body", select([["", "— pick —"]].concat(bodies.map((b) => [b.id, b.name])), a.body, (v) => { annualPickBody(a, v); a.item = null; a.applications = a.stickers = null; loadAnnual(); render(); })),
-      discs ? field("Discipline", select([["", "— pick —"]].concat(discs.map((d) => [d.id, d.name])), a.discipline, (v) => { a.discipline = v; a.item = null; a.applications = a.stickers = null; loadAnnual(); render(); })) : null,
+      // (Body-wide staff also see the stickers from before the body had disciplines.)
+      discs ? field("Discipline", select([["", "— pick —"]].concat(discs.map((d) => [d.id, d.name]),
+        canIn(a.body, null, "issue_annual_stickers") ? [[NO_DISCIPLINE, "No discipline (older stickers)"]] : []), a.discipline, (v) => { a.discipline = v; a.item = null; a.applications = a.stickers = null; loadAnnual(); render(); })) : null,
       field("Season", input({ type: "number", value: String(a.season), min: "2020", max: "2100" }, (v) => { const y = parseInt(v, 10); if (y > 2000) { a.season = y; a.stickers = null; loadAnnual(); } })),
     ])];
     if (!a.body) return out.concat(desc("Pick the body you're issuing stickers for."));
     if (!annualReady(a)) return out.concat(desc(discs && !discs.length ? "You don't issue annual stickers for any of " + bodyName(a.body) + "'s disciplines." : "Pick the discipline: its stickers are good for its events."));
     const apps = a.applications || [];
-    out.push(tabs([["issue", "Issue a sticker"], ["applications", "Applications (" + apps.length + ")"], ["issued", (a.allSeasons ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]], a.tab, (t) => { a.tab = t; render(); }));
+    // No discipline: only what's already there -- new stickers are a discipline's.
+    const older = a.discipline === NO_DISCIPLINE;
+    if (older && a.tab === "issue") a.tab = "issued";
+    out.push(tabs([].concat(older ? [] : [["issue", "Issue a sticker"]], [["applications", "Applications (" + apps.length + ")"], ["issued", (a.allSeasons ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]]), a.tab, (t) => { a.tab = t; render(); }));
     if (a.tab === "applications") {
       out.push(h("div", { class: "account-card" }, [
         h("div", { class: "account-card-title" }, ["Applications from PassTech"]),
-        desc("Competitors apply from My gear in PassTech, with their gear's details and photos. Check the item in hand, then issue its sticker -- or decline, saying why."),
+        desc(older ? "Applications sent before " + bodyName(a.body) + " had disciplines: decline them, saying why -- the competitor can apply again for a discipline."
+          : "Competitors apply from My gear in PassTech, with their gear's details and photos. Check the item in hand, then issue its sticker -- or decline, saying why."),
         apps.length ? apps.map((x) => h("div", { class: "account-entry" }, [
           h("span", { class: "account-entry-main" }, [h("strong", {}, [Stickers.GEAR_LABEL[x.category] || x.category]),
             h("span", { class: "element-desc" }, [" · " + [x.owner, x.submittedBy, "season " + x.season, (x.photos || []).length + " photos", "sent " + fmtDate(x.submittedAt)].filter(Boolean).join(" · ")])]),
-          btn("Review and issue", () => annualItem(x.category, { gear: x.gear, photos: x.photos, owner: x.owner, declared: "Application from " + (x.owner || x.submittedBy), application: x.id }), "small"),
+          older ? null : btn("Review and issue", () => annualItem(x.category, { gear: x.gear, photos: x.photos, owner: x.owner, declared: "Application from " + (x.owner || x.submittedBy), application: x.id }), "small"),
           btn("Decline", () => annualDecline(x), "small secondary"),
         ])) : desc("No pending applications."),
       ]));
@@ -2096,7 +2846,7 @@
         .slice().reverse(); // newest first
       const viewing = a.viewing;
       out.push(h("div", { class: "account-card" }, [
-        h("div", { class: "account-card-title" }, [(a.allSeasons ? [bodyName(a.body), disciplineName(a.body, a.discipline)].filter(Boolean).join(" ") + ", every season," : annualLabel(a)) + " stickers"]),
+        h("div", { class: "account-card-title" }, [(a.allSeasons ? [bodyName(a.body), annualDiscName(a)].filter(Boolean).join(" ") + ", every season," : annualLabel(a)) + " stickers"]),
         h("div", { class: "field-row" }, [
           field("Search", input({ value: a.search || "", "data-id": "annual-search", placeholder: "code, owner, who submitted, standard, serial number…" }, (v) => { a.search = v; render(); restoreFocus("annual-search"); })),
           field("Gear", select([["", "All gear"]].concat(Stickers.GEAR.map((c) => [c, Stickers.GEAR_LABEL[c]])), a.type || "", (v) => { a.type = v; render(); })),
@@ -2304,7 +3054,9 @@
           r.admin ? h("span", { class: "badge rec" }, ["System admin"]) : null,
           r.accreditations.map((a) => h("span", { class: "badge info", title: a.licenseExpires ? "License expires " + fmtDate(a.licenseExpires) : "" }, [roleLabel(a)])),
         ]) : null,
-        btn("Sign out", () => sb.auth.signOut(), "small secondary"),
+        off.on ? h("span", { class: "badge cond", title: "No connection: working from this device's offline copy" }, ["offline"]) : null,
+        off.queue.length ? h("span", { class: "badge info", title: "Changes made offline, waiting to sync" }, [off.queue.length + " to sync"]) : null,
+        btn("Sign out", signOut, "small secondary"),
       ]));
       if (r) {
         (r.expired || []).forEach((x) => children.push(h("p", { class: "verdict warn" }, ["Your " + x.bodyName + " license expired on " + fmtDate(x.licenseExpires) + ": ask your technical director to renew it."])));
@@ -2319,10 +3071,35 @@
     holder.replaceChildren(h("div", { class: "panel account-panel" }, children));
   }
 
+  // Signing out also removes the offline copies (people's names and photos) -- except what
+  // waits to sync, kept for when they sign in again.
+  async function signOut() {
+    const waiting = off.queue.length;
+    if (waiting && !confirm(waiting + " change" + (waiting === 1 ? "" : "s") + " made offline haven't synced yet: they stay on this device and sync when you sign in again as " + me() + ". Sign out?")) return;
+    if (Store) {
+      try {
+        for (const key of await Store.keys("kv")) await Store.del("kv", key);
+        off.copies = {}; off.codes = {};
+        if (waiting) await prunePhotos(); else await Store.clear("photos");
+      } catch (e) { /* nothing kept */ }
+    }
+    ui.signingOut = true;
+    off.on = false;
+    const offline = ui.session && ui.session.offline;
+    await sb.auth.signOut(offline ? { scope: "local" } : undefined).catch(() => {});
+    if (offline) { ui.session = null; ui.roles = null; ui.event = null; ui.signingOut = false; render(); }
+  }
   sb.auth.onAuthStateChange((event, session) => {
     const was = ui.session && ui.session.user.id;
     ui.session = session;
-    if (!session) { ui.roles = null; ui.garage = []; ui.accreditations = []; ui.events = []; ui.event = null; render(); return; }
+    if (!session) {
+      ui.roles = null; ui.garage = []; ui.accreditations = []; ui.events = []; ui.event = null;
+      // Not signed out by them, just no connection to renew the sign-in: offline, as before.
+      if (!ui.signingOut) setTimeout(startOffline, 0);
+      ui.signingOut = false;
+      render();
+      return;
+    }
     // (Deferred: a server call made inside this callback can deadlock the client.)
     if (was !== session.user.id) setTimeout(loadAll, 0); else render();
   });

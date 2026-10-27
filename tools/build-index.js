@@ -36,7 +36,7 @@ rep(/(<script src="version\.js)/, '<script src="/config.js?v=' + v("config.js") 
 // between the header and the rollcage, after the shared scripts.
 rep(/(<\/head>)/, '<link rel="stylesheet" href="/account.css?v=' + v("account.css") + '">\n$1');
 rep(/(<\/header>\r?\n)/, '$1\n<div id="accountPanel" class="account-holder"></div>\n');
-rep(/(<script src="app\.js[^"]*"><\/script>\r?\n)/, '$1<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>\n<script src="/techsheet.js?v=' + v("techsheet.js") + '"></script>\n<script src="/stickers.js?v=' + v("stickers.js") + '"></script>\n<script src="/account.js?v=' + v("account.js") + '"></script>\n');
+rep(/(<script src="app\.js[^"]*"><\/script>\r?\n)/, '$1<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>\n<script src="/techsheet.js?v=' + v("techsheet.js") + '"></script>\n<script src="/stickers.js?v=' + v("stickers.js") + '"></script>\n<script src="/offline.js?v=' + v("offline.js") + '"></script>\n<script src="/account.js?v=' + v("account.js") + '"></script>\n');
 
 // This app's own release number (version.js), after the core's -- its release as the cache buster.
 const release = (fs.readFileSync(path.join(ROOT, "version.js"), "utf8").match(/BUILD_NUMBER = "([^"]*)"/) || [])[1] || v("version.js");
