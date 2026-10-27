@@ -213,10 +213,12 @@
     const who = [data.inspector && data.inspector.name ? "Inspected by " + data.inspector.name + (data.inspector.license ? " (" + data.inspector.license + ")" : "") : "Issued",
       data.bodyName, "on " + fmtDate(data.issuedAt)].filter(Boolean).join(" · ");
     const where = data.event ? [data.event.name, data.event.location, fmtDate(data.event.startsOn) + (data.event.endsOn && data.event.endsOn !== data.event.startsOn ? " to " + fmtDate(data.event.endsOn) : "")].filter(Boolean).join(" · ") : null;
-    const photos = (list) => h("div", { class: "sticker-photos" }, list.map((p) => {
+    // A click opens the picture in the tech sheet's full-screen viewer (zoom, ← / → for the others).
+    const photos = (list) => h("div", { class: "sticker-photos" }, list.map((p, i) => {
       const img = h("img", { alt: p.kind === "tag" ? "Tag photo" : "Photo" });
-      const a = h("a", { target: "_blank", rel: "noopener", class: "sticker-photo" + (p.kind === "tag" ? " tag" : "") }, [img, p.kind === "tag" ? h("span", {}, ["tag"]) : null]);
-      if (opts.photoUrl) opts.photoUrl(p.sha256).then((url) => { if (url) { img.src = url; a.href = url; } }).catch(() => {});
+      const a = h("a", { href: "#", title: "Click to view full screen", class: "sticker-photo" + (p.kind === "tag" ? " tag" : ""),
+        onclick: (e) => { e.preventDefault(); window.TechSheet.openViewer(list, i, opts); } }, [img, p.kind === "tag" ? h("span", {}, ["tag"]) : null]);
+      if (opts.photoUrl) opts.photoUrl(p.sha256).then((url) => { if (url) img.src = url; }).catch(() => {});
       return a;
     }));
 

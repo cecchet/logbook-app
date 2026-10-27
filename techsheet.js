@@ -1137,5 +1137,5 @@
   // Whether the editor for this definition is showing its preview.
   const isPreview = (def) => !!(editorState.get(def) || {}).preview;
 
-  window.TechSheet = { lines, counts, sheet, editor, variantForClass, loadCatalog, isPreview, hasCodriver, loadEngine };
+  window.TechSheet = { lines, counts, sheet, editor, variantForClass, loadCatalog, isPreview, hasCodriver, loadEngine, openViewer };
 })();

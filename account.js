@@ -1982,7 +1982,7 @@
       a.applications = (await rpc("list_sticker_applications", { p_body: a.body, p_status: "pending" }))
         .filter((x) => (x.discipline || "") === (a.discipline || ""));
       a.stickers = await rpc("list_stickers", { p: Object.assign({ body: a.body, discipline: a.discipline || "" }, a.allSeasons ? {} : { season: a.season }) });
-      // Who applied for each sticker issued from an application (PassTech), to search by.
+      // Who submitted the application for each sticker issued from an application (PassTech), to search by.
       a.submitters = {};
       (await rpc("list_sticker_applications", { p_body: a.body, p_status: "issued" })).forEach((x) => { if (x.stickerCode) a.submitters[x.stickerCode] = x.submittedBy; });
       if (!ui.stickerCatalog) TechSheet.loadCatalog().then((c) => { ui.stickerCatalog = c; render(); }, () => {});
@@ -2098,7 +2098,7 @@
       out.push(h("div", { class: "account-card" }, [
         h("div", { class: "account-card-title" }, [(a.allSeasons ? [bodyName(a.body), disciplineName(a.body, a.discipline)].filter(Boolean).join(" ") + ", every season," : annualLabel(a)) + " stickers"]),
         h("div", { class: "field-row" }, [
-          field("Search", input({ value: a.search || "", "data-id": "annual-search", placeholder: "code, owner, who applied, standard, serial number…" }, (v) => { a.search = v; render(); restoreFocus("annual-search"); })),
+          field("Search", input({ value: a.search || "", "data-id": "annual-search", placeholder: "code, owner, who submitted, standard, serial number…" }, (v) => { a.search = v; render(); restoreFocus("annual-search"); })),
           field("Gear", select([["", "All gear"]].concat(Stickers.GEAR.map((c) => [c, Stickers.GEAR_LABEL[c]])), a.type || "", (v) => { a.type = v; render(); })),
         ]),
         h("div", { class: "account-checks" }, [h("label", {}, [h("input", { type: "checkbox", checked: !!a.allSeasons, onchange: (e) => { a.allSeasons = e.target.checked; a.stickers = null; loadAnnual(); } }), " Every season, not only " + a.season])]),
@@ -2110,7 +2110,7 @@
           return h("div", {}, [
             h("div", { class: "account-entry" }, [
               h("span", { class: "account-entry-main" }, [h("strong", {}, [Stickers.fmtCode(s.code)]),
-                h("span", { class: "element-desc" }, [" · " + [Stickers.GEAR_LABEL[snap.category], snap.driver, who && who !== snap.driver ? "applied by " + who : "",
+                h("span", { class: "element-desc" }, [" · " + [Stickers.GEAR_LABEL[snap.category], snap.driver, who && who !== snap.driver ? "submitted by " + who : "",
                   a.allSeasons ? String(s.season) : "", fmtDate(s.issuedAt), s.voidedAt ? "void" : ""].filter(Boolean).join(" · ")])]),
               btn(open ? "Hide" : "View", () => annualView(s.code), "small secondary"),
               !s.voidedAt ? btn("Print", () => Stickers.printDialog([s]), "small secondary") : null,
