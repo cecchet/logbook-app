@@ -51,6 +51,24 @@ as the `core` git submodule; this repo only adds:
 
 No build step beyond that: it's a static site plus one serverless function.
 
+## The Scrutineering user manual
+
+`scrutineering-user-manual.html` (the Scrutineering site's "User manual"
+button, `manualUrl` in `config.js`) is built from `tools/manual/manual.md`
+and screenshots of the site, taken in headless Chrome with
+`tools/manual/demo-server.js` standing in for the server (a made-up club,
+event and scrutineers -- no account, no real people). With this repo served
+on port 5002 (`npx serve . -l 5002`), in `tools/manual/`:
+
+```bash
+rm -rf profile out
+node driver.mjs screenshots.mjs 1280 900
+node build-html.mjs manual.md ../../scrutineering-user-manual.html
+```
+
+Edit `manual.md` for the text; a screenshot is `![caption](file.png)`, from
+`out/`.
+
 ## Updating to a newer core
 
 ```bash

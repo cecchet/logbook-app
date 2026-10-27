@@ -4,6 +4,8 @@
 .account-holder { max-width: 900px; margin: 0 auto; padding: 0 20px; }
 .account-panel { margin-bottom: 16px; }
 .account-panel input[type="text"] { min-width: 220px; }
+/* Number fields (an annual sticker's season) like the shared app's text and date fields. */
+.account-panel .field input[type="number"] { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); font-size: 0.95rem; font-family: inherit; }
 .account-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .account-roles { display: inline-flex; flex-wrap: wrap; gap: 6px; flex: 1; }
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
@@ -14,13 +16,14 @@
 .account-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin: 8px 0; }
 .account-card-title { font-weight: 600; margin-bottom: 4px; }
 .account-records { margin: 6px 0 0; padding-left: 22px; font-size: 0.85rem; }
-.account-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.85rem; }
+/* A wide table (a body's scrutineers) scrolls sideways inside its card rather than overflowing it. */
+.account-table { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 0.85rem; display: block; overflow-x: auto; }
 .account-table th, .account-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--border); }
 .account-table th { color: var(--muted); font-weight: 600; }
 .account-table td.account-warn { color: var(--warn); }
 .account-row-actions { white-space: nowrap; }
 /* In a table row the buttons wrap, so a row with several stays inside its card. */
-.account-table td.account-row-actions { white-space: normal; min-width: 180px; }
+.account-table td.account-row-actions { white-space: normal; min-width: 100px; }
 .account-row-actions .btn { margin: 0 4px 2px 0; }
 .account-device { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
 .account-card.selected { border-color: var(--accent); }
@@ -102,7 +105,6 @@
   .techsheet-row { flex-direction: column; }
 }
 @media (max-width: 640px) {
-  .account-table { display: block; overflow-x: auto; }
   .account-panel input[type="text"] { min-width: 0; width: 100%; }
 }
 /* Tabs: an open event (Competitor management / Admin), a body (Scrutineers / Tech sheets). */

@@ -40,7 +40,8 @@ window.APP_SITE = (function () {
   return site;
 })();
 if (window.APP_SITE === "scrutineering") {
-  Object.assign(window.APP_CONFIG, { appName: "Scrutineering", tourSeenKey: "scrutineering-app-tour-seen" });
+  // Its own user manual (tools/manual builds it).
+  Object.assign(window.APP_CONFIG, { appName: "Scrutineering", tourSeenKey: "scrutineering-app-tour-seen", manualUrl: "/scrutineering-user-manual.html" });
   // The page's own name: its title, header, home-screen name and install manifest.
   document.addEventListener("DOMContentLoaded", () => {
     document.title = "Scrutineering";
@@ -58,8 +59,8 @@ if (window.APP_SITE === "scrutineering") {
       l.setAttribute("href", l.getAttribute("sizes") === "32x32" ? "/icons/scrutineering-favicon-32.png?v=1" : "/icons/scrutineering-icon-192.png?v=1"));
     const touch = document.querySelector('link[rel="apple-touch-icon"]');
     if (touch) touch.setAttribute("href", "/icons/scrutineering-apple-touch-icon.png?v=1");
-    // The roll cage app's own header links (its tutorial video, tour and manual) aren't this site's.
-    ["tutorialVideoLink", "appTourLink", "userManualLink"].forEach((id) => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
+    // The roll cage app's own header links (its tutorial video and tour) aren't this site's.
+    ["tutorialVideoLink", "appTourLink"].forEach((id) => { const el = document.getElementById(id); if (el) el.style.display = "none"; });
   });
 }
 
