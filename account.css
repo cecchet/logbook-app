@@ -136,6 +136,10 @@
 .techsheet-editor-item.folded .techsheet-editor-head { cursor: pointer; }
 .techsheet-editor-item.folded .techsheet-editor-head:hover { background: var(--info-bg); }
 .techsheet-item-name { flex: 1; min-width: 0; font-weight: 600; }
+/* An item's tick list and fields (techsheet.js itemValuesEditor). */
+.techsheet-values-editor { border-left: 3px solid var(--border); margin: 4px 8px; padding: 2px 0 2px 8px; }
+.techsheet-values-editor > .techsheet-field { padding: 4px 0; }
+.techsheet-field-editor { padding-left: 0; }
 .techsheet-item-name .element-desc { font-weight: 400; }
 .techsheet-editor-section.editing .techsheet-editor-item.editing { border: 2px solid var(--warn); background: var(--warn-bg); box-shadow: 0 0 0 3px var(--warn-bg); margin: 10px 8px; }
 .techsheet-caret { border: none; background: none; font: inherit; font-size: 1rem; color: inherit; cursor: pointer; padding: 0 4px; }

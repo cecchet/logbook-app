@@ -1209,6 +1209,8 @@
                 it.gear ? gearChip(it.gear) : null,
               ]),
               it.gear && ctx ? standardsBox(it, ctx, st, small, onChange) : null,
+              // (A gear line's tick list is its accepted standards, above.)
+              it.gear ? null : itemValuesEditor(it, text, small, uid, onChange),
               // Which car types the line is on (all, unless some are unticked).
               variants.length ? h("div", { class: "techsheet-editor-row techsheet-applies" }, ["Applies to: ", variants.map((v) => h("label", {}, [
                 h("input", { type: "checkbox", checked: !it.variants || it.variants.includes(v.id), onchange: (e) => {
@@ -1230,6 +1232,39 @@
         ]);
       }),
       h("div", { class: "techsheet-editor-row" }, [small("Add a section", () => { def.sections.push({ id: uid("section", def.sections.map((x) => x.id)), title: "New section", items: [] }); st.open = def.sections.length - 1; onChange(true); })]),
+    ]);
+  }
+
+  // What an item asks besides OK / N/A: a tick list of what's fitted (its options), and fields of
+  // its own (a measurement, a date...) -- each with its label, type, unit or choices, and whether
+  // it's required. A field keeps its id when renamed, so sheets already filled keep their values.
+  const FIELD_TYPES = [["text", "Text"], ["number", "Number"], ["date", "Date"], ["choice", "One choice"], ["multi", "Several choices"]];
+  const listOf = (v) => v.split(",").map((x) => x.trim()).filter(Boolean);
+  function itemValuesEditor(it, text, small, uid, onChange) {
+    const fields = it.fields || [];
+    return h("div", { class: "techsheet-values-editor" }, [
+      h("label", { class: "techsheet-field" }, [h("span", {}, ["What's fitted -- a tick list, comma-separated (empty: none)"]),
+        text((it.options || []).join(", "), (v) => { const o = listOf(v); if (o.length) it.options = o; else delete it.options; }, { placeholder: "e.g. 30 mm, 32 mm, 34 mm, 36 mm" })]),
+      h("div", { class: "techsheet-field" }, [h("span", {}, ["Fields to fill in" + (fields.length ? "" : " -- none")])]),
+      fields.map((f, fi) => h("div", { class: "techsheet-editor-row techsheet-field-editor" }, [
+        text(f.label, (v) => { f.label = v; }, { placeholder: "Label, e.g. Restrictor size", class: "techsheet-item-input" }),
+        h("select", { onchange: (e) => {
+          f.type = e.target.value;
+          if (f.type !== "number") delete f.unit;
+          if (f.type !== "choice" && f.type !== "multi") delete f.options;
+          onChange(true);
+        } }, FIELD_TYPES.map(([v, l]) => h("option", { value: v, selected: f.type === v }, [l]))),
+        f.type === "number" ? text(f.unit, (v) => { if (v.trim()) f.unit = v.trim(); else delete f.unit; }, { placeholder: "Unit, e.g. mm", class: "techsheet-rule-input" }) : null,
+        f.type === "choice" || f.type === "multi" ? text((f.options || []).join(", "), (v) => { f.options = listOf(v); }, { placeholder: "Choices, comma-separated", class: "techsheet-accepts-input" }) : null,
+        h("label", {}, [h("input", { type: "checkbox", checked: !!f.required, onchange: (e) => { if (e.target.checked) f.required = true; else delete f.required; } }), " Required"]),
+        small("↑", () => { if (fi > 0) { [fields[fi - 1], fields[fi]] = [fields[fi], fields[fi - 1]]; onChange(true); } }, "Move up"),
+        small("↓", () => { if (fi < fields.length - 1) { [fields[fi + 1], fields[fi]] = [fields[fi], fields[fi + 1]]; onChange(true); } }, "Move down"),
+        small("Remove", () => { fields.splice(fi, 1); if (!fields.length) delete it.fields; onChange(true); }),
+      ])),
+      h("div", { class: "techsheet-editor-row" }, [small("Add a field", () => {
+        it.fields = fields.concat({ id: uid("field", fields.map((f) => f.id)), label: "New field", type: "text" });
+        onChange(true);
+      })]),
     ]);
   }
 
