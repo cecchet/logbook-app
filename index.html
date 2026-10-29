@@ -17,10 +17,14 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Logbooks">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="stylesheet" href="style.css?v=58">
+<link rel="stylesheet" href="style.css?v=60">
 <link rel="stylesheet" href="/account.css?v=1793132840412">
 </head>
 <body>
+<!-- One column; on a wide screen (body.wide-layout, set by app.js) two: everything
+     on the left, and on the right the 3D model with Part 7 or 8 below it. -->
+<div class="workspace">
+<div class="workspace-main">
 <header class="app-header">
   <div class="app-header-row">
     <h1><img class="app-logo" src="/icons/icon-192.png?v=1" alt="">Digital logbooks <span class="brand-link">by <a href="https://frogracing.us" target="_blank" rel="noopener">Frog Racing</a></span> <span id="buildNumber" class="build-number"></span></h1>
@@ -42,6 +46,8 @@
   <div id="cage-viewer-panel" class="panel cage-viewer-panel">
     <div id="sessionBarHolder"></div>
     <div id="cageViewerPartDropdown" class="cage-viewer-part-dropdown"></div>
+    <!-- The model and its controls: here, or in the right column on a wide screen. -->
+    <div id="cageViewerBody">
     <div id="cageViewerHeader" class="cage-viewer-header" hidden>
       <div id="cageViewerPictureModeBanner" class="cage-viewer-picture-banner" hidden>
         <span>Selecting parts for this picture &mdash; click a bar to tag it (or cycle its design options).</span>
@@ -55,7 +61,11 @@
       <img class="cage-viewer-watermark" src="images/frog-racing-logo-192.png" alt="Frog Racing">
       <!-- The first rollcage picture, to view (and zoom on) full screen right from the model. -->
       <button id="cageViewerFirstPicture" class="cage-viewer-first-picture" type="button" title="View the rollcage picture full screen" aria-label="View the first rollcage picture full screen" hidden><img alt=""></button>
-      <button id="cageViewerSafetyScore" class="cage-viewer-safety-score" type="button" hidden></button>
+      <!-- The Frog Safety score and the sanctioning body compliance, top left. -->
+      <div class="cage-viewer-badges">
+        <button id="cageViewerSafetyScore" class="cage-viewer-safety-score" type="button" hidden></button>
+        <button id="cageViewerCompliance" class="cage-viewer-safety-score" type="button" hidden></button>
+      </div>
       <div id="cageViewerTooltip" class="cage-viewer-tooltip" hidden></div>
       <!-- The model's own view controls, on the model itself. Ghost bars /
            Occupants are toggles: filled = on, outlined = off. -->
@@ -65,11 +75,11 @@
         <button id="cageViewerDriverToggle" class="btn small" aria-pressed="true" title="Show the driver/codriver mannequins (on), or hide them to see the cage tubes behind them (off)">Occupants</button>
       </div>
     </div>
+    </div>
   </div>
 </div>
 
 <main id="app"></main>
-<div id="modalHolder"></div>
 
 <footer class="app-footer">
   <p>Rules encoded from each sanctioning body's own published technical regulations and grandfathering
@@ -86,21 +96,28 @@
     at no extra cost to you.</p>
   </div>
 </footer>
+</div>
+<aside class="workspace-side">
+  <div class="workspace-side-viewer"><div id="sideViewerSlot" class="panel cage-viewer-panel"></div></div>
+  <div id="workspaceSidePart" class="workspace-side-part"></div>
+</aside>
+</div>
+<div id="modalHolder"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
 <script src="/config.js?v=1793064248582"></script>
 <script src="version.js?v=2026-10-02-01"></script>
-<script src="/version.js?v=2026%2F10%2F28-4"></script>
+<script src="/version.js?v=2026%2F10%2F29-1"></script>
 <script src="cage_view.js?v=144"></script>
 <script src="print_3mf.js?v=2"></script>
 <script src="diagrams.js?v=31"></script>
 <script src="sanctioning-bodies.js?v=1"></script>
-<script src="rules-data.js?v=140"></script>
+<script src="rules-data.js?v=142"></script>
 <script src="pdf_report.js?v=8"></script>
 <script src="templates.js?v=75"></script>
 <script src="photo-capture.js?v=4"></script>
-<script src="app.js?v=415"></script>
+<script src="app.js?v=420"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>
 <script src="/techsheet.js?v=1793132820238"></script>
 <script src="/stickers.js?v=1793111055640"></script>
