@@ -645,7 +645,7 @@
     // so this device's copy doesn't list it twice once refreshed).
     const existingBook = app.isExistingLogbook();
     const pastEvents = existingBook ? (rc.events || []).map((e) => ({
-      localId: e.id, name: e.name || "", date: e.date || "", driver: e.driver || "", techResult: e.techResult || "", techNotes: e.techNotes || "",
+      localId: e.id, kind: e.kind || "event", doneBy: e.doneBy || "", name: e.name || "", date: e.date || "", driver: e.driver || "", techResult: e.techResult || "", techNotes: e.techNotes || "",
       scrutineerName: e.scrutineerName || "", scrutineerLicense: e.scrutineerLicense || "", chiefName: e.chiefName || "", chiefLicense: e.chiefLicense || "",
       notes: e.notes || "", damage: e.damage && e.damage.present ? { present: true, files: e.damage.files || [] } : null,
     })) : [];
