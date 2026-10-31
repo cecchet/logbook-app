@@ -8,8 +8,9 @@ window.APP_CONFIG = {
   // Logbook information first (vehicle, sanctioning body, logbook details,
   // event entries), and the logbook in the PDF report.
   logbook: true,
-  // The Frog Safety score as the last part (Part 7) rather than a panel under every part.
-  safetyScorePart: true,
+  // No Frog Safety score: it rates a design, while a logbook records a cage.
+  safetyScorePart: false,
+  safetyScore: false,
   // Rally sanctioning bodies only for now. SCCA ProRally, Rally America and
   // FIA passport are documentation only (no automatic compliance check yet).
   orgs: ["none", "nasa", "ara", "cars", "scca-prorally", "rally-america", "fia-passport"],

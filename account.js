@@ -620,7 +620,7 @@
     const accs = ui.roles.accreditations;
     const org = rc.vehicle && rc.vehicle.org;
     if (items[0].done && !accs.some((a) => a.body === org)) {
-      items[0] = { label: "Sanctioning body: one you're accredited by (" + accs.map((a) => a.bodyName).join(", ") + ")", done: false, where: "logbook" };
+      items[0] = { label: "Sanctioning body: one you're accredited by (" + accs.map((a) => a.bodyName).join(", ") + ")", done: false, where: "field:vehicle_org" };
     }
     return items;
   }
