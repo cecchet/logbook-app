@@ -563,6 +563,7 @@
         h("span", { class: "account-row-actions" }, [
           btn("View the rollcage", () => app.openLocal(s.sessionId, "rollcage"), "small secondary"),
           srv ? btn("View the event log", () => app.openLocal(s.sessionId, "events"), "small secondary") : null,
+          srv && staff ? btn("QR sticker", () => logbookSticker(srv.id), "small secondary") : null,
           srv && (newer || changed) ? btn("Refresh", () => download(srv.id).catch(fail), "small secondary") : null,
           srv && changed && staff ? btn("Upload changes", () => uploadChanges(s), "small") : null,
           !srv && staff ? btn("Issue online", () => issueOnline(s), "small") : null,
@@ -709,6 +710,18 @@
   async function find() {
     try { ui.found = await rpc("search_logbooks", { f: findForm }); render(); } catch (e) { fail(e); }
   }
+  // A logbook's QR sticker, scanned (or its code typed): finds that logbook.
+  async function findBySticker(code) {
+    try {
+      const st = await rpc("sticker_view", { p_code: code });
+      if (!st) return say("fail", "No sticker with the code " + Stickers.fmtCode(code) + ".");
+      if (st.kind !== "logbook" || !st.logbook) return say("fail", "Sticker " + Stickers.fmtCode(code) + " isn't a logbook sticker.");
+      Object.keys(findForm).forEach((k) => { findForm[k] = ""; });
+      findForm.text = st.logbook.digitalNumber;
+      await find();
+      if (st.status !== "valid") say("fail", "Sticker " + Stickers.fmtCode(code) + " is " + st.status + (st.voidReason ? " (" + st.voidReason + ")" : "") + ": its logbook is listed below.");
+    } catch (e) { fail(e); }
+  }
   async function showRecords(lb) {
     try {
       const r = await sb.from("records").select("seq, kind, created_at, author_email, body").eq("logbook_id", lb.id).order("seq");
@@ -730,7 +743,7 @@
         field("Model", input(Object.assign({ value: findForm.model }, enter), set("model"))),
         field("Year", input(Object.assign({ value: findForm.year, inputmode: "numeric" }, enter), set("year"))),
       ]),
-      actions(btn("Find", find, "secondary")),
+      actions(btn("Find", find, "secondary"), btn("🔳 Scan a QR sticker", () => Stickers.scanDialog(findBySticker), "secondary")),
       ui.found && !ui.found.length ? desc("No logbook found.") : null,
       ui.found && ui.found.length === 50 ? desc("Showing the 50 most recent -- add filters to narrow it down.") : null,
       (ui.found || []).map((lb) => h("div", { class: "account-card" }, [
@@ -2939,7 +2952,9 @@
   // the logbook editor, and the library starts on its list -- each hides it.
   function goMode(mode) {
     if (mode !== ui.mode && sheetDirty()) return leaveTechSheet(() => goMode(mode));
-    if (mode !== "create" && app) app.hideWorkspace();
+    // Creating starts a new logbook: an issued one left open (from the
+    // library) isn't one to create.
+    if (app && (mode !== "create" || (app.currentRollcage().vehicle || {}).server)) app.hideWorkspace();
     // Each section starts on its list: no event or body left open from before.
     if (mode !== ui.mode) { ui.event = null; closeTechSheet(); ui.body = null; ui.templateEdit = null; ui.show = {}; }
     ui.mode = mode; ui.message = null; render();
@@ -2984,7 +2999,7 @@
     const staff = ui.roles.accreditations.length > 0;
     const startButtons = actions(
       btn("Start a blank logbook", () => app.newLogbook(), "small"),
-      btn("Start from a cage template", () => app.openLibrary(), "small secondary"),
+      btn("Start from a cage template", () => app.openLibrary({ templatesOnly: true }), "small secondary"),
       btn("Import a file", importFile, "small secondary"),
     );
     if (!app.workspaceShown()) {
@@ -3000,7 +3015,8 @@
       staff
         ? h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Ready to issue?"]), renderIssue()])
         : desc("When it's complete, a scrutineer issues it after inspecting the car: bring this device, or send them the file (Export to a file)."),
-      h("details", { class: "account-more" }, [h("summary", {}, ["Start another logbook"]), startButtons]),
+      // (Open or not survives the page redrawing it.)
+      h("details", { class: "account-more", open: !!ui.open.startAnother, ontoggle: (e) => { ui.open.startAnother = e.target.open; } }, [h("summary", {}, ["Start another logbook"]), startButtons]),
     ];
   }
   // The library's list, or -- once a logbook is open below -- a bar with
