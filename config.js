@@ -19,6 +19,8 @@ window.APP_CONFIG = {
   swUrl: "/sw.js",
   apiUrl: "/api/analyze-cage",
   tourSeenKey: "logbook-app-tour-seen",
+  // Its own user manual (tools/manual builds it; the Scrutineering site has its own, below).
+  manualUrl: "/logbook-user-manual.html",
   pdfTitle: "Digital Logbook",
   // Open on the account panel (account.js), not the library: the logbook
   // editor shows once a logbook is opened or prepared.

@@ -96,6 +96,23 @@ node build-html.mjs manual.md ../../scrutineering-user-manual.html
 Edit `manual.md` for the text; a screenshot is `![caption](file.png)`, from
 `out/`.
 
+## The Digital logbooks user manual
+
+`logbook-user-manual.html` (the Digital logbooks site's "User manual" button,
+`manualUrl` in `config.js`) is built the same way, from
+`tools/manual/logbook-manual.md` and `tools/manual/logbook-screenshots.mjs`
+(the demo server's made-up logbook: a 2006 Subaru Impreza WRX issued by the
+Demo Rally Club). In `tools/manual/`:
+
+```bash
+rm -rf profile
+node driver.mjs logbook-screenshots.mjs 1280 900
+node build-html.mjs logbook-manual.md ../../logbook-user-manual.html logbook
+```
+
+Its screenshots (`L*.png`) share `out/` with the Scrutineering ones: after
+`rm -rf out`, take both sets again.
+
 ## Updating to a newer core
 
 ```bash

@@ -3,6 +3,8 @@
 // screenshots (screenshots.mjs) -- one self-contained page, the images
 // embedded. The same page as the rollcage app's manual (core/app/tools/manual):
 //   node build-html.mjs manual.md ../../scrutineering-user-manual.html
+// The Digital logbooks manual, the same way:
+//   node build-html.mjs logbook-manual.md ../../logbook-user-manual.html logbook
 // manual.md: "# Title", "## Section", "### Subsection", paragraphs, "- " and
 // "1. " lists, | tables |, **bold**, *italics*, and "![caption](file.png)"
 // for a screenshot from out/.
@@ -10,13 +12,28 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 const here = dirname(new URL(import.meta.url).pathname.replace(/^\/(\w:)/, "$1"));
-const [mdFile, outFile] = process.argv.slice(2).map((p) => resolve(p));
+const [mdFile, outFile] = process.argv.slice(2, 4).map((p) => resolve(p));
+// Which site's manual (the third argument): scrutineering (the default) or logbook.
+const SITES = {
+  scrutineering: {
+    name: "Scrutineering", icon: "scrutineering-icon-192.png", host: "scrutineering.frogracing.us",
+    description: "How to use Frog Racing's Scrutineering site: tech sheets and sign-off at an event, tech stickers, annual safety stickers, event admin, and a sanctioning body's scrutineers and tech sheets.",
+    note: "<b>For scrutineers, chief scrutineers and technical directors.</b> The screenshots show a made-up club, the Demo Rally Club, and its event; what you see depends on your role and permissions. Competitors use PassTech to pre-fill their tech sheets and apply for stickers.",
+  },
+  logbook: {
+    name: "Digital logbooks", icon: "icon-192.png", host: "logbook.frogracing.us",
+    description: "How to use Frog Racing's Digital logbooks site: preparing and issuing a car's rollcage logbook, its log of events, repairs and cage updates, QR stickers, and the logbook library.",
+    note: "<b>For scrutineers who issue logbooks, and for car owners.</b> The screenshots show a made-up club, the Demo Rally Club, and a made-up car; what you see depends on your role and permissions.",
+  },
+};
+const SITE = SITES[process.argv[4] || "scrutineering"];
 const shots = join(here, "out");
 const esc = (s) => s.replace(/&(?!#\d+;)/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const inline = (s) => esc(s)
   .replace(/`([^`]+)`/g, '<span class="mono-inline">$1</span>')
   .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
   .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+  .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
   .replace(/\b([\w.+-]+@frogracing\.us)\b/g, '<a href="mailto:$1">$1</a>');
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 const dataUrl = (file, type) => "data:" + type + ";base64," + readFileSync(file).toString("base64");
@@ -77,7 +94,7 @@ for (let i = 0; i < lines.length; i++) {
   }
 }
 
-const logo = dataUrl(join(here, "..", "..", "icons", "scrutineering-icon-192.png"), "image/png");
+const logo = dataUrl(join(here, "..", "..", "icons", SITE.icon), "image/png");
 const updated = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 const toc = sections.map((s, n) => `<li class="toc-section"><a href="#${s.id}"><span class="toc-num">${n + 1}</span>${inline(s.title)}</a>`
   + (s.subs.length ? `<ul class="toc-sub">${s.subs.map((x) => `<li><a href="#${x.id}">${inline(x.title)}</a></li>`).join("")}</ul>` : "") + "</li>").join("");
@@ -91,8 +108,8 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Scrutineering User Manual</title>
-<meta name="description" content="How to use Frog Racing's Scrutineering site: tech sheets and sign-off at an event, tech stickers, annual safety stickers, event admin, and a sanctioning body's scrutineers and tech sheets.">
+<title>${SITE.name} User Manual</title>
+<meta name="description" content="${SITE.description}">
 <link rel="icon" type="image/png" href="${logo}">
 <style>
   :root {
@@ -168,17 +185,17 @@ const html = `<!doctype html>
 <body>
 <div class="shell">
   <aside class="sidebar" id="sidebar">
-    <a class="sidebar-brand" href="#top"><img src="${logo}" alt=""><span>Scrutineering</span></a>
+    <a class="sidebar-brand" href="#top"><img src="${logo}" alt=""><span>${SITE.name}</span></a>
     <p class="sidebar-tag">User manual · Frog Racing</p>
     <button class="nav-toggle" type="button" aria-expanded="false" onclick="var s=document.getElementById('sidebar');var o=s.classList.toggle('nav-open');this.setAttribute('aria-expanded',o)">Contents <span>▾</span></button>
     <ol class="toc">${toc}</ol>
   </aside>
   <main class="content" id="top">
     <div class="page-title">
-      <h1>${inline(title || "Scrutineering")} — User manual</h1>
-      <p>Updated ${updated}. Open the site at <a href="https://scrutineering.frogracing.us/" target="_blank" rel="noopener">scrutineering.frogracing.us</a>.</p>
+      <h1>${inline(title || SITE.name)} — User manual</h1>
+      <p>Updated ${updated}. Open the site at <a href="https://${SITE.host}/" target="_blank" rel="noopener">${SITE.host}</a>.</p>
     </div>
-    <div class="disclaimer"><b>For scrutineers, chief scrutineers and technical directors.</b> The screenshots show a made-up club, the Demo Rally Club, and its event; what you see depends on your role and permissions. Competitors use PassTech to pre-fill their tech sheets and apply for stickers.</div>
+    <div class="disclaimer">${SITE.note}</div>
 ${body}
     <p class="page-foot">Frog Racing · questions or corrections: <a href="mailto:info@frogracing.us">info@frogracing.us</a></p>
   </main>

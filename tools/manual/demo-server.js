@@ -218,25 +218,62 @@
       event: s.event ? { name: "Pine Hills Rally", location: "Lancaster, NH", startsOn: iso(1), endsOn: iso(2) } : null });
   };
 
+  // ---- A digital logbook (the Digital logbooks manual): a made-up car, issued by the club
+  // from the FIA Article 253 design template, with one tech inspection since. ----
+  const LB = "lb-demo-1", LB_NUMBER = "FL-7KQ2-M9XD", LB_OWNER = "jordan.lee@example.com";
+  const LB_CAR = { make: "Subaru", model: "Impreza WRX", year: "2006" };
+  const lbFull = () => {
+    const t = (window.ROLLCAGE_TEMPLATES || []).find((x) => x.templateId === "rally-cage-double-v") || { answers: {}, pathId: "new_construction" };
+    const v = (value) => ({ value, note: "", photos: [], extra: {} });
+    const answers = Object.assign({}, t.answers, {
+      vehicle_manufacturer: v(LB_CAR.make), vehicle_model: v(LB_CAR.model), vehicle_year: v(LB_CAR.year), vehicle_vin: v("JF1GD70696L512345"),
+      vehicle_owner_name: v("Jordan Lee"), vehicle_owner_email: v(LB_OWNER), vehicle_logbook_number: v("01-512345"),
+    });
+    const vehicle = Object.assign({ name: "2006 Subaru Impreza WRX" }, LB_CAR);
+    const rec = (seq, kind, body, extra) => Object.assign({ id: "rec-" + seq, seq, kind, body, corrects: null, hash: "h" + seq, prevHash: seq > 1 ? "h" + (seq - 1) : null,
+      eventId: null, eventName: null, eventStartsOn: null }, extra);
+    return {
+      logbook: { id: LB, digital_number: LB_NUMBER, status: "active", issuing_body: "drc", owner_email: LB_OWNER, issued_at: at(-200), car_name: vehicle.name,
+        year: LB_CAR.year, make: LB_CAR.make, model: LB_CAR.model, public_enabled: true, public_token: "demo-token" },
+      bodyNumbers: { drc: "01-512345" },
+      records: [
+        rec(1, "issue", { vehicle, owner: { name: "Jordan Lee", email: LB_OWNER }, cage: { pathId: t.pathId || "new_construction", org: "nasa", answers },
+          pictures: [], vehiclePhotos: { front: { sha256: "car" } } },
+          { createdAt: at(-200, 15), authorEmail: ME, authorName: "Alex Morgan", license: "DRC-001", authorBody: "drc" }),
+        rec(2, "inspection", { result: "pass", driver: "Jordan Lee", notes: "OK to run" },
+          { createdAt: at(-160, 9), authorEmail: "jamie.chen@example.com", authorName: "Jamie Chen", license: "DRC-014", authorBody: "drc",
+            eventId: "ev-old", eventName: "Mud Season Rally", eventStartsOn: iso(-160) }),
+      ],
+    };
+  };
+  const lbSummary = () => Object.assign({ id: LB, digitalNumber: LB_NUMBER, carName: "2006 Subaru Impreza WRX", vin: "JF1GD70696L512345", hasVin: true, body: "drc",
+    bodyNumbers: { drc: "01-512345" }, ownerName: "Jordan Lee", ownerEmail: LB_OWNER, issuedAt: at(-200), status: "active" }, LB_CAR);
+  const lbSticker = () => ({ code: "L7KQ2M9X", kind: "logbook", logbook: LB, body: "drc", issuedBy: "Alex Morgan", issuedAt: at(0, 10), voidedAt: null,
+    snapshot: { digitalNumber: LB_NUMBER } });
+
   // ---- The RPCs ----
   const RPC = {
     my_roles: () => roles,
     my_garage: () => [],
-    logbook_heads: () => [],
+    logbook_heads: (a) => ((a.p_ids || []).includes(LB) ? [{ id: LB, digitalNumber: LB_NUMBER, status: "active", lastSeq: 2 }] : []),
+    logbook_full: (a) => { if (a.p_id !== LB) throw new Error("no such logbook"); return lbFull(); },
     my_events: () => events,
     event_bundle: (a) => bundle(a.p_event),
     list_stickers: (a) => {
       const p = a.p || {};
       if (p.techSheet) return sheetStickers(p.techSheet);
+      if (p.logbook) return [];
       if (p.event) return ["55", "64", "88"].flatMap((n) => sheetStickers("ts-" + n));
       return annual.filter((s) => (!("discipline" in p) || (s.discipline || "") === p.discipline) && (!p.season || s.season === p.season));
     },
     list_sticker_applications: (a) => (a.p_status === "issued"
       ? Object.entries(submitters).map(([stickerCode, submittedBy]) => ({ stickerCode, submittedBy, discipline: "autox" }))
       : applications.filter((x) => x.body === a.p_body)),
-    sticker_view: (a) => view(a.p_code),
-    issue_sticker: (a) => Object.assign({ code: a.p.code || "N3WS7K2R", event: E1, item: a.p.item || null, kind: a.p.kind, body: "drc", discipline: a.p.discipline || "rally", disciplineShort: (a.p.discipline || "rally").toUpperCase(), season: a.p.season,
-      issuedAt: new Date().toISOString(), snapshot: { category: "helmet", carNumber: "23" } }),
+    sticker_view: (a) => (a.p_code === lbSticker().code
+      ? Object.assign({}, lbSticker(), { status: "valid", bodyName: "Demo Rally Club", logbook: { digitalNumber: LB_NUMBER, status: "active", publicToken: "demo-token", id: LB } })
+      : view(a.p_code)),
+    issue_sticker: (a) => (a.p.kind === "logbook" ? lbSticker() : Object.assign({ code: a.p.code || "N3WS7K2R", event: E1, item: a.p.item || null, kind: a.p.kind, body: "drc", discipline: a.p.discipline || "rally", disciplineShort: (a.p.discipline || "rally").toUpperCase(), season: a.p.season,
+      issuedAt: new Date().toISOString(), snapshot: { category: "helmet", carNumber: "23" } })),
     save_tech_sheet: (a) => {
       const p = a.p, now = sheetNow(String(p.carNumber));
       if ("baseUpdatedAt" in p && now && p.baseUpdatedAt !== now.updatedAt) {
@@ -253,7 +290,12 @@
       return s;
     },
     reserve_sticker_codes: (a) => Array.from({ length: 30 }, (_, i) => "OFF" + String.fromCharCode(65 + Math.floor(i / 10)) + "2" + "3456789ABC"[i % 10] + "XY"),
-    search_logbooks: () => [],
+    search_logbooks: (a) => {
+      const f = (a.f || {});
+      const text = [f.text, f.make, f.model, f.year, f.owner].filter(Boolean).join(" ").toLowerCase();
+      const hay = [LB_NUMBER, "Subaru Impreza WRX 2006 Jordan Lee JF1GD70696L512345 01-512345"].join(" ").toLowerCase();
+      return text.split(/\s+/).filter(Boolean).every((w) => hay.includes(w)) ? [lbSummary()] : [];
+    },
     lock_tech_sheet: () => null,
   };
   const TABLES = { bodies: () => bodies, body_disciplines: () => disciplines, accreditations: () => accreditations, tech_sheet_templates: templates, records: () => [] };
