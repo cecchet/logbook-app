@@ -1,0 +1,18 @@
+# Files Vercel doesn't need to deploy (it serves the rest as static files,
+# plus api/, whose function loads core/api/). Keeps each deployment smaller.
+# This app's build/maintenance scripts and the database migrations.
+tools
+supabase
+README.md
+# The shared app's (core/) own scripts, user manual (on GitHub Pages) and
+# development-only 3D files -- see core/.vercelignore.
+core/tools
+core/docs
+core/Rollcage.stl
+core/rollcage_assembly.obj
+core/rollcage_assembly.stl
+core/3mf_reference.stl
+core/stl_viewer.html
+core/cage_assembly.html
+core/.claude
+core/README.md
