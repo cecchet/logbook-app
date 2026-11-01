@@ -31,6 +31,8 @@ Once signed in, the home screen shows one card per mode: **Create a new logbook*
 
 ![The home screen of a technical director.](L01-home.png)
 
+At the top right of every page, **How it works** gives a short guided tour of the logbook editor; it shows a copy of the FIA Article 253 cage template and closes it again when the tour ends (unless you saved it). **User manual** opens this manual, and the YouTube logo plays the Rollcage assessment tool tutorial video.
+
 ### Saving your work
 
 A logbook you're working on is saved in this browser, on this device, when you press **Save on this device**; nothing is sent online until it's issued. **Export to a file** downloads it, with its photos, to hand to someone else or to keep as a backup. Reloading or closing the page with unsaved changes asks you first.
@@ -40,7 +42,7 @@ A logbook you're working on is saved in this browser, on this device, when you p
 **Create a new logbook** starts one, in one of three ways:
 
 - **Start a blank logbook**.
-- **Start from a cage template**: opens the cage templates (design templates, rollcage kits and real cars) to start from a copy of one. Your saved and issued logbooks aren't offered here: an issued logbook is never the start of a new one.
+- **Start from a cage template**: opens the cage templates (design templates, rollcage kits and real cars) to start from a copy of one. Your saved and issued logbooks aren't offered here: an issued logbook is never the start of a new one. The YouTube logo at the top of the templates plays the FIA Article 253 Rollcages Tutorial video, on how roll cages are designed and built.
 - **Import a file**: a file exported from the Rollcage assessment tool, or from this site. This is how a car owner's own description of the cage, with its pictures, becomes a logbook.
 
 ![Create a new logbook.](L10-create.png)
