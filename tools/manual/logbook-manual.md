@@ -107,12 +107,24 @@ Entries you add here are saved with the logbook on your device and in its export
 **Logbook library** lists the logbooks you can open:
 
 - **On this device**: the logbooks saved in this browser, each with whether it's **Up to date**, **Changed on this device**, **Newer online** or only on this device. **View the rollcage** and **View the event log** open it; **Refresh** brings in what's newer online; **Upload changes** sends cage changes made here (scrutineers); **Issue online** issues a logbook that isn't online yet; **QR sticker** prints its sticker (scrutineers); **Delete** removes it from this device. **Check for updates** compares them all with the online logbooks, and **Refresh all** updates every one that's out of date.
-- **My garage**: for car owners, the cars whose logbook lists your email. **Save to this device** downloads one; **Copy public link** and **Open public view** share it.
-- **Find a logbook online** (scrutineers): search by number, VIN, owner, car, make, model or year, or **Scan a QR sticker**. Each result can be saved to this device or opened.
+- **My garage**: for car owners, the cars whose logbook lists your email. **Save to this device** downloads one, and **Open** then shows the whole logbook, log included. **Copy public link** and **Open public view** share it, and **Privacy and public link** chooses what that link shows (see below).
+- **Find a logbook online** (scrutineers): search by number, VIN, owner, car, make, model, year or the scrutineer who issued it, or **Scan a QR sticker**. **Logbooks I issued** lists the ones you issued, newest first. Each result says who issued it, and can be saved to this device or opened.
 
 Download the logbooks you'll need before going where there's no signal: a logbook on this device opens without a connection.
 
 ![The Logbook library: a logbook on this device, and a search.](L20-library.png)
+
+### Your car's public link
+
+Each car in My garage has a public link, the one its QR sticker opens. Anyone with it can see the logbook without signing in. **Privacy and public link** sets what they see:
+
+- **Public link on**: untick it to turn the link (and the sticker's view) off.
+- The public view always shows the car, the sanctioning body, the logbook numbers, the cage and its log. You choose whether it also shows **your name**, **the VIN** (the last 6 characters, the whole VIN, or none of it), **the builder**, and **the rollcage and vehicle photos**. Paper logbook pages and damage photos are never public.
+- **Save** applies your choices. **New public link** replaces the link: the old one, and the view from its QR sticker, stop working until the sticker is reprinted.
+
+Scrutineers and the sanctioning body always see the whole logbook.
+
+![My garage: choosing what a car's public link shows, and a search for the logbooks you issued.](L21-garage.png)
 
 ### QR stickers
 

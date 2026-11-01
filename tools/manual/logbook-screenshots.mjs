@@ -45,7 +45,7 @@ export default async function (a) {
   await a.eval(`${click("/Find a logbook online/", PANEL)}
     const i = document.querySelector('${PANEL} .account-section-body .field input'); i.value = 'Subaru'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); ${wait(200)}
     ${click("/^Find$/", PANEL)} ${wait(1200)}`);
-  await a.eval(`${click("/^Save to this device$/", PANEL)} ${wait(4000)}
+  await a.eval(`[...${card("/Subaru/")}.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save to this device').click(); ${wait(4000)}
     [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Discard' && b.offsetParent)?.click(); ${wait(1500)} window.scrollTo(0, 0);`);
   await a.shot("L20-library", PANEL);
 
@@ -57,6 +57,12 @@ export default async function (a) {
     ${click("/Scan a QR sticker/", PANEL)} ${wait(1500)}`);
   await a.shot("L23-scan", ".sticker-dialog");
   await a.eval(`document.querySelector('.sticker-dialog-backdrop')?.remove(); ${wait(300)}`);
+
+  // My garage: what a car's public link shows; and the logbooks I issued.
+  await a.eval(`${click("/^Privacy and public link$/", PANEL)} ${click("/^Logbooks I issued$/", PANEL)} ${wait(800)}`);
+  const sec = (re) => `[...document.querySelectorAll('${PANEL} .account-section')].find(s => ${re}.test(s.querySelector('.account-section-head').textContent))`;
+  await a.eval(range(sec("/My garage/"), sec("/Find a logbook online/"), "shot-garage"));
+  await a.shot("L21-garage", "#shot-garage");
 
   // ---- The log: its event, plus a repair ----
   await a.eval(`${click("/^View the event log$/", PANEL)} ${wait(1000)}

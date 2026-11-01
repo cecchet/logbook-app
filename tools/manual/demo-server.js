@@ -247,14 +247,21 @@
     };
   };
   const lbSummary = () => Object.assign({ id: LB, digitalNumber: LB_NUMBER, carName: "2006 Subaru Impreza WRX", vin: "JF1GD70696L512345", hasVin: true, body: "drc",
-    bodyNumbers: { drc: "01-512345" }, ownerName: "Jordan Lee", ownerEmail: LB_OWNER, issuedAt: at(-200), status: "active" }, LB_CAR);
+    bodyNumbers: { drc: "01-512345" }, ownerName: "Jordan Lee", ownerEmail: LB_OWNER, issuedAt: at(-200), status: "active",
+    issuedBy: { name: "Alex Morgan", email: ME } }, LB_CAR);
+  // The technical director's own car, in My garage.
+  const garage = [{ id: "lb-demo-2", digitalNumber: "FL-3HW8-T2NC", vin: "*******G098765", body: "drc", status: "active", publicToken: "demo-token-2", publicEnabled: true,
+    privacy: { owner: false, vin: "partial", builder: true, cage_photos: true }, bodyNumbers: { drc: "14-098765" },
+    vehicle: { name: "2003 Mitsubishi Lancer Evolution", make: "Mitsubishi", model: "Lancer Evolution", year: "2003" } }];
   const lbSticker = () => ({ code: "L7KQ2M9X", kind: "logbook", logbook: LB, body: "drc", issuedBy: "Alex Morgan", issuedAt: at(0, 10), voidedAt: null,
     snapshot: { digitalNumber: LB_NUMBER } });
 
   // ---- The RPCs ----
   const RPC = {
     my_roles: () => roles,
-    my_garage: () => [],
+    my_garage: () => garage,
+    set_privacy: (a) => { const c = garage.find((x) => x.id === a.p_logbook); Object.assign(c.privacy, a.p_privacy); c.publicEnabled = a.p_public_enabled; return null; },
+    reset_public_link: (a) => { const c = garage.find((x) => x.id === a.p_logbook); c.publicToken = "demo-token-" + Date.now(); return c.publicToken; },
     logbook_heads: (a) => ((a.p_ids || []).includes(LB) ? [{ id: LB, digitalNumber: LB_NUMBER, status: "active", lastSeq: 2 }] : []),
     logbook_full: (a) => { if (a.p_id !== LB) throw new Error("no such logbook"); return lbFull(); },
     my_events: () => events,
@@ -292,6 +299,8 @@
     reserve_sticker_codes: (a) => Array.from({ length: 30 }, (_, i) => "OFF" + String.fromCharCode(65 + Math.floor(i / 10)) + "2" + "3456789ABC"[i % 10] + "XY"),
     search_logbooks: (a) => {
       const f = (a.f || {});
+      if (f.mine) return [lbSummary()];
+      if (f.issuer && !/alex|morgan/i.test(f.issuer)) return [];
       const text = [f.text, f.make, f.model, f.year, f.owner].filter(Boolean).join(" ").toLowerCase();
       const hay = [LB_NUMBER, "Subaru Impreza WRX 2006 Jordan Lee JF1GD70696L512345 01-512345"].join(" ").toLowerCase();
       return text.split(/\s+/).filter(Boolean).every((w) => hay.includes(w)) ? [lbSummary()] : [];

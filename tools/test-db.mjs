@@ -232,6 +232,15 @@ await check("by sanctioning body", async () => {
   // The Subaru, the two buggies and the chassis-numbered car.
   assert((await rpc(S2, "search_logbooks", [{ body: "ara" }])).length === 4, "not every ARA logbook");
 });
+await check("the logbooks I issued", async () => {
+  const r = await rpc(S2, "search_logbooks", [{ mine: true }]);
+  assert(r.length === 3 && r.every((x) => x.issuedBy.email === S2 && x.issuedBy.name === "Sam Two"), "found " + JSON.stringify(r.map((x) => x.issuedBy)));
+});
+await check("by the issuing scrutineer's name or email", async () => {
+  assert((await rpc(S2, "search_logbooks", [{ issuer: "sam two" }])).length === 3, "not by name");
+  const r = await rpc(S2, "search_logbooks", [{ issuer: "s1@" }]);
+  assert(r.length === 1 && r[0].digitalNumber === issued.digitalNumber, "not by email: " + r.length);
+});
 await refused("an owner can't search other people's logbooks", () => rpc(OWNER, "search_logbooks", [{}]), /not allowed/);
 
 console.log("Events");

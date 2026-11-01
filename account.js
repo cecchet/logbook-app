@@ -595,15 +595,63 @@
   function vehicleLine(v) { return v ? [v.year, v.make || v.manufacturer, v.model].filter(Boolean).join(" ") || v.name || "" : ""; }
   function renderGarage() {
     if (!ui.garage.length) return [desc("No cars in your garage yet. A logbook appears here once a scrutineer issues it with your email as the owner.")];
-    return ui.garage.map((car) => h("div", { class: "account-card" }, [
+    return [desc("The cars whose logbook lists your email as the owner. Save one to this device to open the whole logbook; choose what its public link shows under Privacy and public link.")].concat(ui.garage.map((car) => h("div", { class: "account-card" }, [
       h("div", { class: "account-card-title" }, [vehicleLine(car.vehicle) || "Car", " · ", car.digitalNumber]),
       desc([car.vin ? "VIN " + car.vin : "No VIN", bodyName(car.body) + (car.bodyNumbers[car.body] ? " logbook " + car.bodyNumbers[car.body] : ""), car.status].join(" · ")),
       actions(
         app ? btn(localFor(car.id) ? "Refresh on this device" : "Save to this device", () => download(car.id).catch(fail), "small") : null,
+        app && localFor(car.id) ? btn("Open", () => app.openLocal(localFor(car.id).sessionId), "small secondary") : null,
         car.publicEnabled ? btn("Copy public link", () => copy(publicUrl(car.publicToken)), "small secondary") : h("span", { class: "element-desc" }, ["Public link off"]),
-        h("a", { class: "btn small secondary", href: publicUrl(car.publicToken), target: "_blank", rel: "noopener" }, ["Open public view"]),
+        car.publicEnabled ? h("a", { class: "btn small secondary", href: publicUrl(car.publicToken), target: "_blank", rel: "noopener" }, ["Open public view"]) : null,
+        btn("Privacy and public link", () => toggle("privacy-" + car.id), ui.show["privacy-" + car.id] ? "small" : "small secondary"),
       ),
-    ]));
+      ui.show["privacy-" + car.id] ? renderPrivacy(car) : null,
+    ])));
+  }
+  // What the car's public link shows (set_privacy): the link on or off, the
+  // owner's name, the VIN, the builder and the rollcage photos. The record
+  // itself is never changed; the public view leaves out what's off (paper
+  // pages and damage photos are never public).
+  const privacyForms = {};
+  function renderPrivacy(car) {
+    const pv = car.privacy || {};
+    const f = privacyForms[car.id] || (privacyForms[car.id] = {
+      on: !!car.publicEnabled, owner: pv.owner === true, vin: pv.vin || "partial", builder: pv.builder !== false, photos: pv.cage_photos !== false,
+    });
+    const box = (key, label) => h("label", { class: "checkbox-label" }, [
+      h("input", { type: "checkbox", checked: f[key], onchange: (e) => { f[key] = e.target.checked; render(); } }), " " + label]);
+    return h("div", { class: "account-card account-privacy" }, [
+      box("on", "Public link on: anyone with the link (or the QR sticker on the cage) can see this logbook"),
+      f.on ? h("div", { class: "account-privacy-shows" }, [
+        desc("The public view always shows the car, the sanctioning body, the logbook numbers, the cage and its log. Choose what else it shows:"),
+        box("owner", "My name"),
+        field("VIN", select([["partial", "Last 6 characters"], ["full", "The whole VIN"], ["hidden", "Hidden"]], f.vin, (v) => { f.vin = v; })),
+        box("builder", "The builder"),
+        box("photos", "The rollcage and vehicle photos"),
+      ]) : null,
+      actions(
+        btn("Save", () => savePrivacy(car), "small"),
+        btn("New public link", () => newPublicLink(car), "small secondary"),
+        h("span", { class: "element-desc" }, ["A new link stops the old one (and the QR sticker's view) from working."]),
+      ),
+    ]);
+  }
+  async function savePrivacy(car) {
+    const f = privacyForms[car.id];
+    try {
+      await rpc("set_privacy", { p_logbook: car.id, p_privacy: { owner: f.owner, vin: f.vin, builder: f.builder, cage_photos: f.photos }, p_public_enabled: f.on });
+      ui.garage = await rpc("my_garage");
+      delete privacyForms[car.id];
+      say("pass", "Saved: the public link " + (f.on ? "shows what you chose." : "is off."));
+    } catch (e) { fail(e); }
+  }
+  async function newPublicLink(car) {
+    if (!confirm("Make a new public link for " + (vehicleLine(car.vehicle) || car.digitalNumber) + "?\n\nThe old link stops working, and so does the public view from its QR sticker until the sticker is reprinted.")) return;
+    try {
+      await rpc("reset_public_link", { p_logbook: car.id });
+      ui.garage = await rpc("my_garage");
+      say("pass", "New public link made.");
+    } catch (e) { fail(e); }
   }
   function copy(text) {
     navigator.clipboard.writeText(text).then(() => say("pass", "Link copied."), () => say("fail", "Couldn't copy -- the link is: " + text));
@@ -706,7 +754,7 @@
   }
 
   // ---- Find a logbook (scrutineers) ---------------------------------------
-  const findForm = { text: "", body: "", make: "", model: "", year: "", owner: "" };
+  const findForm = { text: "", body: "", make: "", model: "", year: "", owner: "", issuer: "", mine: false };
   async function find() {
     try { ui.found = await rpc("search_logbooks", { f: findForm }); render(); } catch (e) { fail(e); }
   }
@@ -742,14 +790,21 @@
         field("Make", input(Object.assign({ value: findForm.make }, enter), set("make"))),
         field("Model", input(Object.assign({ value: findForm.model }, enter), set("model"))),
         field("Year", input(Object.assign({ value: findForm.year, inputmode: "numeric" }, enter), set("year"))),
+        field("Issued by (scrutineer's name or email)", input(Object.assign({ value: findForm.issuer }, enter), set("issuer"))),
       ]),
-      actions(btn("Find", find, "secondary"), btn("🔳 Scan a QR sticker", () => Stickers.scanDialog(findBySticker), "secondary")),
+      actions(
+        btn("Find", () => { findForm.mine = false; find(); }, "secondary"),
+        btn("Logbooks I issued", () => { Object.keys(findForm).forEach((k) => { findForm[k] = ""; }); findForm.mine = true; find(); }, findForm.mine ? "" : "secondary"),
+        btn("🔳 Scan a QR sticker", () => Stickers.scanDialog(findBySticker), "secondary"),
+      ),
+      findForm.mine && ui.found ? desc("The logbooks you issued, newest first.") : null,
       ui.found && !ui.found.length ? desc("No logbook found.") : null,
       ui.found && ui.found.length === 50 ? desc("Showing the 50 most recent -- add filters to narrow it down.") : null,
       (ui.found || []).map((lb) => h("div", { class: "account-card" }, [
         h("div", { class: "account-card-title" }, [carLine(lb) || lb.carName || "Car", " · ", lb.digitalNumber, lb.status !== "active" ? " · " + lb.status : ""]),
         desc([lb.vin ? (lb.hasVin ? "VIN " : "Chassis ") + lb.vin : "No VIN", bodyName(lb.body) + (lb.bodyNumbers[lb.body] ? " logbook " + lb.bodyNumbers[lb.body] : ""),
-              "owner " + [lb.ownerName, lb.ownerEmail].filter(Boolean).join(", "), "issued " + fmtDate(lb.issuedAt)].join(" · ")),
+              "owner " + [lb.ownerName, lb.ownerEmail].filter(Boolean).join(", "),
+              "issued " + fmtDate(lb.issuedAt) + (lb.issuedBy && (lb.issuedBy.name || lb.issuedBy.email) ? " by " + (lb.issuedBy.name || lb.issuedBy.email) : "")].join(" · ")),
         lb.records
           ? h("ol", { class: "account-records" }, lb.records.map((r) => h("li", {}, [r.kind + " -- " + new Date(r.created_at).toLocaleString() + " by " + r.author_email, r.body && (r.body.note || r.body.notes) ? ": " + (r.body.note || r.body.notes) : ""])))
           : null,

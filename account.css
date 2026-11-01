@@ -296,3 +296,7 @@
 .account-permissions { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 12px; margin: 6px 0; }
 .account-permissions label { display: flex; align-items: flex-start; gap: 6px; }
 .account-permissions input { margin-top: 3px; flex: none; }
+/* My garage: a car's privacy and public link. */
+.account-privacy { display: flex; flex-direction: column; gap: 8px; }
+.account-privacy-shows { display: flex; flex-direction: column; gap: 6px; padding-left: 22px; }
+.account-privacy-shows .field { flex: none; max-width: 260px; }
