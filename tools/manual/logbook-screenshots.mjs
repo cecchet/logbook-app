@@ -75,6 +75,12 @@ export default async function (a) {
   await a.eval(mark(`document.getElementById('logbook-events').closest('.panel')`, "shot-log"));
   await a.shot("L24-log", "#shot-log", 8, 1500);
 
+  // ---- A car's public view (its link, its QR sticker) ----
+  await a.go(SITE + "&logbook=demo-token");
+  await a.sleep(9000);
+  await a.eval(`document.querySelector('.account-public-model img') && document.querySelector('.account-public-model').closest('.panel, .account-panel, section, div').scrollIntoView();`);
+  await a.shot("L25-public", PANEL, 8, 1400);
+
   // ---- Signed out: the sign-in screen ----
   await a.go(SITE + "&demo=signedout");
   await a.sleep(1500);

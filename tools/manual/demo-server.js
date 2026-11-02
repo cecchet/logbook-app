@@ -238,7 +238,7 @@
       bodyNumbers: { drc: "01-512345" },
       records: [
         rec(1, "issue", { vehicle, owner: { name: "Jordan Lee", email: LB_OWNER }, cage: { pathId: t.pathId || "new_construction", org: "nasa", answers },
-          pictures: [], vehiclePhotos: { front: { sha256: "car" } } },
+          pictures: ["cage-1", "cage-4", "cage-7"].map((sha256, i) => ({ sha256, category: i ? "main_rollbar" : "overview", elements: [] })), vehiclePhotos: { front: { sha256: "car" } } },
           { createdAt: at(-200, 15), authorEmail: ME, authorName: "Alex Morgan", license: "DRC-001", authorBody: "drc" }),
         rec(2, "inspection", { result: "pass", driver: "Jordan Lee", notes: "OK to run" },
           { createdAt: at(-160, 9), authorEmail: "jamie.chen@example.com", authorName: "Jamie Chen", license: "DRC-014", authorBody: "drc",
@@ -248,10 +248,10 @@
   };
   const lbSummary = () => Object.assign({ id: LB, digitalNumber: LB_NUMBER, carName: "2006 Subaru Impreza WRX", vin: "JF1GD70696L512345", hasVin: true, body: "drc",
     bodyNumbers: { drc: "01-512345" }, ownerName: "Jordan Lee", ownerEmail: LB_OWNER, issuedAt: at(-200), status: "active",
-    issuedBy: { name: "Alex Morgan", email: ME } }, LB_CAR);
+    issuedBy: { name: "Alex Morgan", email: ME }, photo: "car", publicToken: "demo-token", publicEnabled: true }, LB_CAR);
   // The technical director's own car, in My garage.
   const garage = [{ id: "lb-demo-2", digitalNumber: "FL-3HW8-T2NC", vin: "*******G098765", body: "drc", status: "active", publicToken: "demo-token-2", publicEnabled: true,
-    privacy: { owner: false, vin: "partial", builder: true, cage_photos: true }, bodyNumbers: { drc: "14-098765" },
+    privacy: { owner: false, vin: "hidden", builder: true, tubing: true, model_3d: true, vehicle_photos: true, cage_photos: "all", cage_photo_list: [] }, bodyNumbers: { drc: "14-098765" },
     vehicle: { name: "2003 Mitsubishi Lancer Evolution", make: "Mitsubishi", model: "Lancer Evolution", year: "2003" } }];
   const lbSticker = () => ({ code: "L7KQ2M9X", kind: "logbook", logbook: LB, body: "drc", issuedBy: "Alex Morgan", issuedAt: at(0, 10), voidedAt: null,
     snapshot: { digitalNumber: LB_NUMBER } });
@@ -261,9 +261,16 @@
     my_roles: () => roles,
     my_garage: () => garage,
     set_privacy: (a) => { const c = garage.find((x) => x.id === a.p_logbook); Object.assign(c.privacy, a.p_privacy); c.publicEnabled = a.p_public_enabled; return null; },
-    reset_public_link: (a) => { const c = garage.find((x) => x.id === a.p_logbook); c.publicToken = "demo-token-" + Date.now(); return c.publicToken; },
+    // The public view: the demo logbook as anyone sees it (the owner's name left out).
+    public_logbook: () => {
+      const full = lbFull();
+      return { digitalNumber: LB_NUMBER, vin: null, body: "drc", bodyName: "Demo Rally Club", status: "active", issuedAt: at(-200),
+        shows: { model3d: true, tubing: true }, bodyNumbers: full.bodyNumbers,
+        records: full.records.map((r) => ({ seq: r.seq, kind: r.kind, createdAt: r.createdAt, author: r.authorName, license: r.license, authorBody: r.authorBody,
+          body: Object.assign({}, r.body, { owner: undefined }) })) };
+    },
     logbook_heads: (a) => ((a.p_ids || []).includes(LB) ? [{ id: LB, digitalNumber: LB_NUMBER, status: "active", lastSeq: 2 }] : []),
-    logbook_full: (a) => { if (a.p_id !== LB) throw new Error("no such logbook"); return lbFull(); },
+    logbook_full: (a) => { if (a.p_id !== LB && a.p_id !== "lb-demo-2") throw new Error("no such logbook"); return lbFull(); },
     my_events: () => events,
     event_bundle: (a) => bundle(a.p_event),
     list_stickers: (a) => {
@@ -341,7 +348,9 @@
       TAGS[sha].forEach((t, i) => { g.font = (i === 0 ? "bold 40px" : "26px") + " Arial"; g.fillText(t, 240, 105 + i * 48); });
       return new Promise((r) => c.toBlob(r, "image/jpeg", 0.9));
     }
-    const res = await fetch("/tools/manual/demo-photos/" + sha + ".jpg");
+    // (Rollcage pictures: a real cage's, from the core's Audi RS4 template.)
+    const cage = /^cage-(\d+)$/.exec(sha);
+    const res = await fetch(cage ? "/core/images/templates/audi-rs4-rally/" + cage[1] + ".jpg" : "/tools/manual/demo-photos/" + sha + ".jpg");
     return res.blob();
   };
   const client = {

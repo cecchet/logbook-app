@@ -93,8 +93,10 @@ console.log("Issuing a logbook");
 const issueRecord = {
   vehicle: { make: "Subaru", model: "Impreza", year: "2004" },
   owner: { name: "Pat Owner", phone: "555-0100" },
-  cage: { answers: { vehicle_vin: { value: "JF1GD70625L512345" }, vehicle_builder: { value: "CAS" }, vehicle_owner_name: { value: "Pat Owner" }, roof_bars: { value: "253-12-1" } } },
-  pictures: [{ sha256: "abc", category: "overview" }],
+  cage: { answers: { vehicle_vin: { value: "JF1GD70625L512345" }, vehicle_builder: { value: "CAS" }, vehicle_owner_name: { value: "Pat Owner" }, roof_bars: { value: "253-12-1" },
+    primary_tubing: { value: { material: "cds_dom", diameter: { val: 1.75, unit: "in" }, thickness: { val: 0.095, unit: "in" } } } } },
+  pictures: [{ sha256: "abc", category: "overview" }, { sha256: "abd", category: "doors" }],
+  vehiclePhotos: { front: { sha256: "car" } },
   paperPages: [{ sha256: "def" }],
 };
 let issued;
@@ -152,11 +154,12 @@ await check("every hash matches its content and the previous record", async () =
 console.log("Public link and privacy");
 await check("the public link hides the owner, the VIN and paper pages by default", async () => {
   const pub = await rpc(null, "public_logbook", [issued.publicToken]);
-  assert(pub.vin === "*****" + "*".repeat(6) + "512345", "vin shown as " + pub.vin);
+  assert(pub.vin === null, "vin shown as " + pub.vin);
+  assert(pub.shows.model3d === true && pub.shows.tubing === true, "shows " + JSON.stringify(pub.shows));
   const body = pub.records[0].body;
   assert(!body.owner && !body.paperPages, "owner or paper pages leaked");
   assert(!body.cage.answers.vehicle_owner_name && !body.cage.answers.vehicle_vin, "owner name or VIN leaked in the answers");
-  assert(body.cage.answers.vehicle_builder && body.pictures, "builder or cage photos missing");
+  assert(body.cage.answers.vehicle_builder && body.pictures.length === 2 && body.vehiclePhotos, "builder or photos missing");
   assert(pub.records.length === 3 && pub.records[2].author === "Multi", "records or authors missing");
 });
 await check("the owner chooses to show their name and the full VIN", async () => {
@@ -165,6 +168,25 @@ await check("the owner chooses to show their name and the full VIN", async () =>
   assert(pub.vin === "JF1GD70625L512345" && pub.records[0].body.owner.name === "Pat Owner", "privacy not applied");
   assert(!pub.records[0].body.cage.answers.vehicle_builder && !pub.records[0].body.pictures, "builder or photos still shown");
 });
+await check("the last 6 characters of the VIN", async () => {
+  await rpc(OWNER, "set_privacy", [issued.id, { vin: "partial" }, true]);
+  assert((await rpc(null, "public_logbook", [issued.publicToken])).vin === "*".repeat(11) + "512345", "not partial");
+});
+await check("only the rollcage pictures the owner picks, and no vehicle photos", async () => {
+  await rpc(OWNER, "set_privacy", [issued.id, { cage_photos: "some", cage_photo_list: ["a".repeat(64)], vehicle_photos: false }, true]);
+  const pv = (await rpc(OWNER, "my_garage"))[0].privacy;
+  assert(pv.cage_photos === "some" && pv.cage_photo_list.length === 1 && pv.vin === "hidden", JSON.stringify(pv));
+  const body = (await rpc(null, "public_logbook", [issued.publicToken])).records[0].body;
+  assert(body.pictures.length === 0 && !body.vehiclePhotos, "pictures " + JSON.stringify(body.pictures));
+});
+await check("no 3D model: only the tubing specs of the cage", async () => {
+  await rpc(OWNER, "set_privacy", [issued.id, { model_3d: false }, true]);
+  const pub = await rpc(null, "public_logbook", [issued.publicToken]);
+  assert(JSON.stringify(Object.keys(pub.records[0].body.cage.answers)) === '["primary_tubing"]', JSON.stringify(pub.records[0].body.cage.answers));
+  await rpc(OWNER, "set_privacy", [issued.id, { model_3d: false, tubing: false }, true]);
+  assert(!(await rpc(null, "public_logbook", [issued.publicToken])).records[0].body.cage, "cage still there");
+});
+await refused("the owner can't make a new public link (it would break links already shared)", () => rpc(OWNER, "reset_public_link", [issued.id]), /permission denied/);
 await refused("a stranger can't change the privacy", () => rpc(STRANGER, "set_privacy", [issued.id, {}, true]), /not your logbook/);
 await check("the owner turns the public link off", async () => {
   await rpc(OWNER, "set_privacy", [issued.id, {}, false]);
@@ -342,6 +364,16 @@ await check("a logbook issued with its photos indexes them", async () => {
   const rows = (await db.query("select kind, count(*)::int as n from logbook_photos where logbook_id = $1 group by kind order by kind", [photoBook.id])).rows;
   assert(JSON.stringify(rows) === JSON.stringify([{ kind: "cage", n: 2 }, { kind: "paper", n: 1 }, { kind: "vehicle", n: 1 }]), JSON.stringify(rows));
 });
+await check("signed-in users open the public view too", async () => {
+  const r = await rpc("photo@car.test", "public_logbook", [photoBook.publicToken]);
+  assert(r && r.digitalNumber === photoBook.digitalNumber, "owner: " + JSON.stringify(r));
+  assert((await rpc(STRANGER, "public_logbook", [photoBook.publicToken])).digitalNumber === photoBook.digitalNumber, "stranger");
+});
+await check("a search shows its car photo and its public link", async () => {
+  const r = await rpc(S2, "search_logbooks", [{ text: "WVWZZZ1JZXW000002" }]);
+  assert(r.length === 1 && r[0].photo === VEHICLE, "photo: " + (r[0] && r[0].photo));
+  assert(r[0].publicToken && r[0].publicEnabled === true, "no public link");
+});
 await check("its owner can see its photos", async () => {
   for (const name of [CAGE, SHOT, VEHICLE, PAPER]) assert(await canSee("photo@car.test", name), "owner can't see " + name.slice(0, 4));
 });
@@ -355,6 +387,12 @@ await check("the public link shows the rollcage and vehicle photos, not the pape
 await check("...until the owner hides the photos", async () => {
   await rpc("photo@car.test", "set_privacy", [photoBook.id, { cage_photos: false }, true]);
   assert(!(await canSee(null, CAGE)), "public still sees the cage photo");
+});
+await check("...or picks which rollcage pictures to show, and hides the vehicle photos", async () => {
+  await rpc("photo@car.test", "set_privacy", [photoBook.id, { cage_photos: "some", cage_photo_list: [CAGE], vehicle_photos: false }, true]);
+  assert(await canSee(null, CAGE) && !(await canSee(null, SHOT)), "the picked picture isn't the only one shown");
+  assert(!(await canSee(null, VEHICLE)), "public still sees the vehicle photo");
+  await rpc("photo@car.test", "set_privacy", [photoBook.id, { cage_photos: false }, true]);
 });
 await check("a stored photo can't be changed or deleted", async () => {
   await as(S2, (q) => q("update storage.objects set name = $1 where name = $2", [sha("f"), CAGE]));

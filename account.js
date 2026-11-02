@@ -595,12 +595,13 @@
   function vehicleLine(v) { return v ? [v.year, v.make || v.manufacturer, v.model].filter(Boolean).join(" ") || v.name || "" : ""; }
   function renderGarage() {
     if (!ui.garage.length) return [desc("No cars in your garage yet. A logbook appears here once a scrutineer issues it with your email as the owner.")];
-    return [desc("The cars whose logbook lists your email as the owner. Save one to this device to open the whole logbook; choose what its public link shows under Privacy and public link.")].concat(ui.garage.map((car) => h("div", { class: "account-card" }, [
+    return [desc("The cars whose logbook lists your email as the owner. Save one to this device to open the whole logbook, or export it to a file (to import into PassTech, for instance); choose what its public link and QR sticker show under Privacy and public link.")].concat(ui.garage.map((car) => h("div", { class: "account-card" }, [
       h("div", { class: "account-card-title" }, [vehicleLine(car.vehicle) || "Car", " · ", car.digitalNumber]),
       desc([car.vin ? "VIN " + car.vin : "No VIN", bodyName(car.body) + (car.bodyNumbers[car.body] ? " logbook " + car.bodyNumbers[car.body] : ""), car.status].join(" · ")),
       actions(
         app ? btn(localFor(car.id) ? "Refresh on this device" : "Save to this device", () => download(car.id).catch(fail), "small") : null,
         app && localFor(car.id) ? btn("Open", () => app.openLocal(localFor(car.id).sessionId), "small secondary") : null,
+        app ? btn("Export to a file", () => exportCar(car).catch(fail), "small secondary") : null,
         car.publicEnabled ? btn("Copy public link", () => copy(publicUrl(car.publicToken)), "small secondary") : h("span", { class: "element-desc" }, ["Public link off"]),
         car.publicEnabled ? h("a", { class: "btn small secondary", href: publicUrl(car.publicToken), target: "_blank", rel: "noopener" }, ["Open public view"]) : null,
         btn("Privacy and public link", () => toggle("privacy-" + car.id), ui.show["privacy-" + car.id] ? "small" : "small secondary"),
@@ -608,49 +609,74 @@
       ui.show["privacy-" + car.id] ? renderPrivacy(car) : null,
     ])));
   }
-  // What the car's public link shows (set_privacy): the link on or off, the
-  // owner's name, the VIN, the builder and the rollcage photos. The record
-  // itself is never changed; the public view leaves out what's off (paper
-  // pages and damage photos are never public).
+  // The logbook as a file (the rollcage file format, with its photos): saved
+  // to this device first if it isn't yet.
+  async function exportCar(car) {
+    if (!localFor(car.id)) await download(car.id);
+    const local = localFor(car.id);
+    if (local) app.exportLocal(local.sessionId);
+  }
+  // What the car's public view (its link and QR sticker) shows (set_privacy,
+  // privacy_norm): the link on or off, the owner's name, the VIN, the
+  // builder, the tubing specs, the 3D model, the vehicle photos, and all,
+  // some or none of the rollcage pictures. The record itself is never
+  // changed; the public view leaves out what's off (paper pages and damage
+  // photos are never public).
   const privacyForms = {};
+  const carPictures = {}; // logbook id -> its rollcage pictures' SHA-256s (latest), or null while loading
+  function loadCarPictures(car) {
+    if (car.id in carPictures) return;
+    carPictures[car.id] = null;
+    rpc("logbook_full", { p_id: car.id })
+      .then((full) => { const w = latestWith(full.records, "pictures"); carPictures[car.id] = w ? w.pictures.map((p) => p.sha256).filter(Boolean) : []; render(); })
+      .catch((e) => { delete carPictures[car.id]; fail(e); });
+  }
   function renderPrivacy(car) {
     const pv = car.privacy || {};
     const f = privacyForms[car.id] || (privacyForms[car.id] = {
-      on: !!car.publicEnabled, owner: pv.owner === true, vin: pv.vin || "partial", builder: pv.builder !== false, photos: pv.cage_photos !== false,
+      on: !!car.publicEnabled, owner: pv.owner === true, vin: pv.vin || "hidden", builder: pv.builder !== false, tubing: pv.tubing !== false,
+      model3d: pv.model_3d !== false, vehiclePhotos: pv.vehicle_photos !== false,
+      cagePhotos: ["all", "some", "none"].includes(pv.cage_photos) ? pv.cage_photos : pv.cage_photos === false ? "none" : "all",
+      list: (pv.cage_photo_list || []).slice(),
     });
     const box = (key, label) => h("label", { class: "checkbox-label" }, [
       h("input", { type: "checkbox", checked: f[key], onchange: (e) => { f[key] = e.target.checked; render(); } }), " " + label]);
+    if (f.on && f.cagePhotos === "some") loadCarPictures(car);
+    const pics = carPictures[car.id];
     return h("div", { class: "account-card account-privacy" }, [
       box("on", "Public link on: anyone with the link (or the QR sticker on the cage) can see this logbook"),
       f.on ? h("div", { class: "account-privacy-shows" }, [
-        desc("The public view always shows the car, the sanctioning body, the logbook numbers, the cage and its log. Choose what else it shows:"),
+        desc("The public view always shows the car, the sanctioning body, the logbook numbers and its log. Choose what else it shows:"),
         box("owner", "My name"),
-        field("VIN", select([["partial", "Last 6 characters"], ["full", "The whole VIN"], ["hidden", "Hidden"]], f.vin, (v) => { f.vin = v; })),
+        field("VIN", select([["hidden", "Hidden"], ["partial", "Last 6 characters"], ["full", "The whole VIN"]], f.vin, (v) => { f.vin = v; })),
         box("builder", "The builder"),
-        box("photos", "The rollcage and vehicle photos"),
+        box("tubing", "The tubing specs (primary and secondary: material, diameter, wall thickness)"),
+        box("model3d", "The cage's 3D model"),
+        box("vehiclePhotos", "The vehicle photos"),
+        field("Rollcage pictures", select([["all", "All of them"], ["some", "Only the ones I pick"], ["none", "None"]], f.cagePhotos, (v) => { f.cagePhotos = v; render(); })),
+        f.cagePhotos === "some"
+          ? pics === null || pics === undefined ? desc("Loading the pictures…")
+            : !pics.length ? desc("This logbook has no rollcage pictures.")
+            : h("div", { class: "account-privacy-pics" }, pics.map((sha) => h("label", { class: "account-privacy-pic" + (f.list.includes(sha) ? " picked" : "") }, [
+                thumb(sha),
+                h("input", { type: "checkbox", checked: f.list.includes(sha), onchange: (e) => {
+                  f.list = e.target.checked ? f.list.concat(sha) : f.list.filter((x) => x !== sha); render();
+                } }),
+              ])))
+          : null,
       ]) : null,
-      actions(
-        btn("Save", () => savePrivacy(car), "small"),
-        btn("New public link", () => newPublicLink(car), "small secondary"),
-        h("span", { class: "element-desc" }, ["A new link stops the old one (and the QR sticker's view) from working."]),
-      ),
+      actions(btn("Save", () => savePrivacy(car), "small")),
     ]);
   }
   async function savePrivacy(car) {
     const f = privacyForms[car.id];
     try {
-      await rpc("set_privacy", { p_logbook: car.id, p_privacy: { owner: f.owner, vin: f.vin, builder: f.builder, cage_photos: f.photos }, p_public_enabled: f.on });
+      await rpc("set_privacy", { p_logbook: car.id, p_public_enabled: f.on, p_privacy: {
+        owner: f.owner, vin: f.vin, builder: f.builder, tubing: f.tubing, model_3d: f.model3d, vehicle_photos: f.vehiclePhotos,
+        cage_photos: f.cagePhotos, cage_photo_list: f.cagePhotos === "some" ? f.list : [] } });
       ui.garage = await rpc("my_garage");
       delete privacyForms[car.id];
       say("pass", "Saved: the public link " + (f.on ? "shows what you chose." : "is off."));
-    } catch (e) { fail(e); }
-  }
-  async function newPublicLink(car) {
-    if (!confirm("Make a new public link for " + (vehicleLine(car.vehicle) || car.digitalNumber) + "?\n\nThe old link stops working, and so does the public view from its QR sticker until the sticker is reprinted.")) return;
-    try {
-      await rpc("reset_public_link", { p_logbook: car.id });
-      ui.garage = await rpc("my_garage");
-      say("pass", "New public link made.");
     } catch (e) { fail(e); }
   }
   function copy(text) {
@@ -777,6 +803,18 @@
       lb.records = r.data; render();
     } catch (e) { fail(e); }
   }
+  // A search result's car photo (search_logbooks' photo), downloaded once.
+  const thumbs = {}; // sha -> object URL, or null while loading / when it can't be read
+  function thumb(sha) {
+    if (!sha) return h("div", { class: "account-thumb account-thumb-none" }, ["🚗"]);
+    if (!(sha in thumbs)) {
+      thumbs[sha] = null;
+      sb.storage.from(PHOTO_BUCKET).download(sha)
+        .then(({ data, error }) => { if (!error && data) { thumbs[sha] = URL.createObjectURL(data); render(); } })
+        .catch(() => {});
+    }
+    return thumbs[sha] ? h("img", { class: "account-thumb", src: thumbs[sha], alt: "" }) : h("div", { class: "account-thumb account-thumb-none" }, ["🚗"]);
+  }
   function renderFind() {
     const set = (k) => (v) => { findForm[k] = v; };
     const enter = { onkeydown: (e) => { if (e.key === "Enter") find(); } };
@@ -800,7 +838,7 @@
       findForm.mine && ui.found ? desc("The logbooks you issued, newest first.") : null,
       ui.found && !ui.found.length ? desc("No logbook found.") : null,
       ui.found && ui.found.length === 50 ? desc("Showing the 50 most recent -- add filters to narrow it down.") : null,
-      (ui.found || []).map((lb) => h("div", { class: "account-card" }, [
+      (ui.found || []).map((lb) => h("div", { class: "account-card account-card-thumb" }, [thumb(lb.photo), h("div", { class: "account-card-body" }, [
         h("div", { class: "account-card-title" }, [carLine(lb) || lb.carName || "Car", " · ", lb.digitalNumber, lb.status !== "active" ? " · " + lb.status : ""]),
         desc([lb.vin ? (lb.hasVin ? "VIN " : "Chassis ") + lb.vin : "No VIN", bodyName(lb.body) + (lb.bodyNumbers[lb.body] ? " logbook " + lb.bodyNumbers[lb.body] : ""),
               "owner " + [lb.ownerName, lb.ownerEmail].filter(Boolean).join(", "),
@@ -812,8 +850,12 @@
           lb.records ? null : btn("Show records", () => showRecords(lb), "small secondary"),
           app ? btn(localFor(lb.id) ? "Refresh on this device" : "Save to this device", () => download(lb.id).catch(fail), "small secondary") : null,
           app && localFor(lb.id) ? btn("Open", () => app.openLocal(localFor(lb.id).sessionId), "small secondary") : null,
+          // What scanning its QR sticker shows anyone (the owner's privacy choices applied).
+          lb.publicToken && lb.publicEnabled
+            ? h("a", { class: "btn small secondary", href: publicUrl(lb.publicToken), target: "_blank", rel: "noopener", title: "What anyone scanning its QR sticker sees" }, ["Public view"])
+            : lb.publicToken ? h("span", { class: "element-desc" }, ["Public link off"]) : null,
         ),
-      ])),
+      ])])),
     ];
   }
 
@@ -2669,24 +2711,39 @@
     render();
     try { ui.publicView.data = await rpc("public_logbook", { p_token: token }); } catch (e) { fail(e); }
     render();
-    // Its rollcage and vehicle photos, when the owner shows them (the
-    // public copy of the records leaves them out otherwise).
+    // Its vehicle photos and rollcage pictures, as the owner shows them (the
+    // public copy of the records leaves the others out), and its 3D model.
     const d = ui.publicView.data;
     if (!d) return;
+    const cageRec = latestWith(d.records, "cage");
+    const cage = cageRec && cageRec.cage;
+    if (d.shows && d.shows.model3d && cage && cage.answers && app && app.cageSnapshot) {
+      app.cageSnapshot(cage).then((shot) => { if (ui.publicView && ui.publicView.data === d) { ui.publicView.model = shot; render(); } });
+    }
     const withPictures = latestWith(d.records, "pictures");
     const withVehicle = latestWith(d.records, "vehiclePhotos");
-    const shas = [].concat(
-      withVehicle ? ["front", "rear"].map((slot) => withVehicle.vehiclePhotos[slot] && withVehicle.vehiclePhotos[slot].sha256).filter(Boolean) : [],
-      withPictures ? withPictures.pictures.map((p) => p.sha256) : []);
-    ui.publicView.photos = [];
-    for (const sha of shas) {
-      try {
-        const { data, error } = await sb.storage.from(PHOTO_BUCKET).download(sha);
-        if (error) continue;
-        ui.publicView.photos.push(URL.createObjectURL(data));
-        render();
-      } catch (e) { /* not shown */ }
-    }
+    const load = async (shas, key) => {
+      ui.publicView[key] = [];
+      for (const sha of shas) {
+        try {
+          const { data, error } = await sb.storage.from(PHOTO_BUCKET).download(sha);
+          if (error) continue;
+          ui.publicView[key].push(URL.createObjectURL(data));
+          render();
+        } catch (e) { /* not shown */ }
+      }
+    };
+    await load(withVehicle ? ["front", "rear"].map((slot) => withVehicle.vehiclePhotos[slot] && withVehicle.vehiclePhotos[slot].sha256).filter(Boolean) : [], "vehiclePhotos");
+    await load(withPictures ? withPictures.pictures.map((p) => p.sha256).filter(Boolean) : [], "cagePhotos");
+  }
+  // A tubing answer ({ material, diameter, thickness }) in words.
+  const TUBE_MATERIALS = { cds_dom: "DOM / CDS steel", chromoly_4130: "4130 chromoly", docol_r8: "Docol R8", t45: "T45", other: "other material" };
+  function tubeLine(v) {
+    if (!v || typeof v !== "object") return null;
+    const dim = (x) => (x && x.val !== "" && x.val != null ? x.val + (x.unit === "mm" ? " mm" : '"') : null);
+    const size = [dim(v.diameter), dim(v.thickness)].filter(Boolean).join(" x ");
+    const text = [v.material ? TUBE_MATERIALS[v.material] || v.material : null, size].filter(Boolean).join(", ");
+    return text || null;
   }
   function renderPublic() {
     const d = ui.publicView.data;
@@ -2694,13 +2751,22 @@
     if (!d) return h("p", { class: "verdict fail" }, ["This logbook link isn't valid or has been turned off by the owner."]);
     const issueRec = d.records.find((r) => r.kind === "issue");
     const v = issueRec && issueRec.body.vehicle;
+    const cageRec = latestWith(d.records, "cage");
+    const ans = (cageRec && cageRec.cage && cageRec.cage.answers) || {};
+    const tubes = d.shows && d.shows.tubing
+      ? [["Primary tubing", ans.primary_tubing], ["Secondary tubing", ans.secondary_tubing]].map(([label, a]) => [label, tubeLine(a && a.value)]).filter(([, t]) => t)
+      : [];
+    const gallery = (urls) => h("div", { class: "account-photos" }, urls.map((url) => h("a", { href: url, target: "_blank", rel: "noopener", title: "Open full size" }, [h("img", { src: url, alt: "" })])));
+    const vp = ui.publicView.vehiclePhotos || [], cp = ui.publicView.cagePhotos || [];
     return h("div", {}, [
       h("div", { class: "account-card-title" }, [vehicleLine(v) || "Logbook", " · ", d.digitalNumber]),
       desc([d.bodyName + (d.bodyNumbers[d.body] ? " logbook " + d.bodyNumbers[d.body] : ""), d.vin ? "VIN " + d.vin : null, "status: " + d.status, "issued " + fmtDate(d.issuedAt)].filter(Boolean).join(" · ")),
       issueRec && issueRec.body.owner ? desc("Owner: " + [issueRec.body.owner.name, issueRec.body.owner.email].filter(Boolean).join(", ")) : null,
-      (ui.publicView.photos || []).length
-        ? h("div", { class: "account-photos" }, ui.publicView.photos.map((url) => h("a", { href: url, target: "_blank", rel: "noopener", title: "Open full size" }, [h("img", { src: url, alt: "" })])))
-        : null,
+      vp.length ? gallery(vp) : null,
+      ui.publicView.model ? h("div", { class: "account-public-model" }, [h("img", { src: ui.publicView.model, alt: "The cage's 3D model" })]) : null,
+      tubes.length ? h("ul", { class: "account-public-tubes" }, tubes.map(([label, t]) => h("li", {}, [h("strong", {}, [label + ": "]), t]))) : null,
+      cp.length ? h("h4", {}, ["Rollcage pictures"]) : null,
+      cp.length ? gallery(cp) : null,
       h("ol", { class: "account-records" }, d.records.map((r) => h("li", {}, [
         r.kind + " -- " + new Date(r.createdAt).toLocaleDateString() + " by " + r.author + (r.license ? " (" + r.authorBody.toUpperCase() + " " + r.license + ")" : ""),
         r.body && (r.body.note || r.body.notes) ? ": " + (r.body.note || r.body.notes) : "",

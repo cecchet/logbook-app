@@ -300,3 +300,15 @@
 .account-privacy { display: flex; flex-direction: column; gap: 8px; }
 .account-privacy-shows { display: flex; flex-direction: column; gap: 6px; padding-left: 22px; }
 .account-privacy-shows .field { flex: none; max-width: 260px; }
+.account-card-thumb { display: flex; gap: 12px; align-items: flex-start; }
+.account-card-thumb .account-card-body { flex: 1; min-width: 0; }
+.account-thumb { width: 96px; height: 72px; flex: none; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--border); }
+.account-thumb-none { display: flex; align-items: center; justify-content: center; font-size: 28px; color: var(--muted); background: var(--surface-2, transparent); }
+@media (max-width: 520px) { .account-thumb { width: 64px; height: 48px; } }
+.account-privacy-pics { display: flex; flex-wrap: wrap; gap: 8px; }
+.account-privacy-pic { position: relative; cursor: pointer; border-radius: var(--radius); outline: 2px solid transparent; }
+.account-privacy-pic.picked { outline-color: var(--accent); }
+.account-privacy-pic input { position: absolute; top: 4px; left: 4px; }
+.account-privacy-pic:not(.picked) .account-thumb { opacity: 0.55; }
+.account-public-model img { max-width: 100%; width: 480px; border-radius: var(--radius); border: 1px solid var(--border); }
+.account-public-tubes { margin: 6px 0; padding-left: 18px; }
