@@ -24,30 +24,46 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":
 
 // One email per kind: { subject, lines } -- each line is plain text, or
 // { text, href } for a link. Rendered as both text and HTML below.
+const longDate = (d) => (d ? new Date(d).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }) : "");
+// What every email about the logbook says after its opening: how to reach it.
+function logbookLines(n) {
+  return [
+    "To see it, sign in to Digital logbooks with this email address (" + n.to + ") and open My garage:",
+    { text: APP_URL, href: APP_URL + "/" },
+    "From My garage you can:",
+    { bullets: [
+      "Save to this device -- to see the whole logbook (its rollcage, pictures and event log) offline.",
+      "Export to a file -- to import the logbook into PassTech or the Rollcage assessment tool.",
+      "Privacy and public link -- choose what its public link and QR sticker show.",
+    ] },
+    n.publicToken ? "Its public page (what anyone scanning its QR sticker sees):" : null,
+    n.publicToken ? { text: APP_URL + "/?logbook=" + n.publicToken, href: APP_URL + "/?logbook=" + n.publicToken } : null,
+    "Only scrutineers can add to it: they record each inspection and event, and you'll see them in its event log.",
+  ];
+}
+const carOf = (n) => n.car || n.carName || "car";
+const nameOf = (n) => (n.carName && n.car && n.carName !== n.car ? " (“" + n.carName + "”)" : "");
+const bodyLine = (n) => (n.body ? " It is your " + n.body + " logbook" + (n.bodyNumber ? ", number " + n.bodyNumber : "") + "." : "");
+const hello = (n) => "Hello" + (n.ownerName ? " " + n.ownerName : "") + ",";
+
+// One email per kind: { subject, lines } -- each line is plain text,
+// { text, href } for a link or { bullets }. Rendered as both text and HTML below.
 const TEMPLATES = {
-  issued(n) {
-    const car = n.car || n.carName || "car";
-    const named = n.carName && n.car && n.carName !== n.car ? " (“" + n.carName + "”)" : "";
-    return {
-      subject: "Your " + car + "'s digital logbook " + n.digitalNumber + " has been issued",
-      lines: [
-        "Hello" + (n.ownerName ? " " + n.ownerName : "") + ",",
-        (n.issuedBy || "A scrutineer") + " has issued the digital logbook " + n.digitalNumber + " for your " + car + named + "." +
-          (n.body ? " It is your " + n.body + " logbook" + (n.bodyNumber ? ", number " + n.bodyNumber : "") + "." : ""),
-        "To see it, sign in to Digital logbooks with this email address (" + n.to + ") and open My garage:",
-        { text: APP_URL, href: APP_URL + "/" },
-        "From My garage you can:",
-        { bullets: [
-          "Save to this device -- to see the whole logbook (its rollcage, pictures and event log) offline.",
-          "Export to a file -- to import the logbook into PassTech or the Rollcage assessment tool.",
-          "Privacy and public link -- choose what its public link and QR sticker show.",
-        ] },
-        n.publicToken ? "Its public page (what anyone scanning its QR sticker sees):" : null,
-        n.publicToken ? { text: APP_URL + "/?logbook=" + n.publicToken, href: APP_URL + "/?logbook=" + n.publicToken } : null,
-        "Only scrutineers can add to it: they record each inspection and event, and you'll see them in its event log.",
-      ].filter(Boolean),
-    };
-  },
+  // The logbook was just issued.
+  issued: (n) => ({
+    subject: "Your " + carOf(n) + "'s digital logbook " + n.digitalNumber + " has been issued",
+    lines: [hello(n),
+      (n.issuedBy || "A scrutineer") + " has issued the digital logbook " + n.digitalNumber + " for your " + carOf(n) + nameOf(n) + "." + bodyLine(n),
+    ].concat(logbookLines(n)).filter(Boolean),
+  }),
+  // A scrutineer's "Email owner": how to reach it, again (or for a new owner).
+  reminder: (n) => ({
+    subject: "Your " + carOf(n) + "'s digital logbook " + n.digitalNumber,
+    lines: [hello(n),
+      (n.sentBy || "A scrutineer") + " sent you the details of the digital logbook " + n.digitalNumber + " for your " + carOf(n) + nameOf(n) +
+        (n.issuedAt ? ", issued on " + longDate(n.issuedAt) + (n.issuedBy ? " by " + n.issuedBy : "") : "") + "." + bodyLine(n),
+    ].concat(logbookLines(n)).filter(Boolean),
+  }),
 };
 
 function render({ subject, lines }) {

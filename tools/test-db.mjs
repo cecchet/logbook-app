@@ -690,6 +690,17 @@ await check("not an hour after issuing it", async () => {
   try { await rpc(S2, "claim_notification", [photoBook.id, "issued"]); throw new Error("was allowed"); }
   catch (e) { assert(/too long after/.test(e.message), e.message); }
 });
+await check("Email owner: another scrutineer of its body, to the owner on record (after a sale, the buyer)", async () => {
+  const n = await rpc(S2, "claim_notification", [issued.id, "reminder"]);
+  assert(n.to === BUYER && n.kind === "reminder" && n.sentBy, JSON.stringify(n));
+});
+await refused("...not again within 5 minutes", () => rpc(S1, "claim_notification", [issued.id, "reminder"]), /less than 5 minutes ago/);
+await check("...but again later", async () => {
+  await db.exec(`update notifications set created_at = now() - interval '6 minutes' where logbook_id = '${issued.id}'`);
+  await rpc(S1, "claim_notification", [issued.id, "reminder"]);
+});
+await refused("...not by someone outside its body", () => rpc(STRANGER, "claim_notification", [photoBook.id, "reminder"]), /only a scrutineer of its sanctioning body/);
+await refused("...nor by its owner", () => rpc("photo@car.test", "claim_notification", [photoBook.id, "reminder"]), /only a scrutineer of its sanctioning body/);
 await refused("nobody reads the notifications directly", () => as(S2, (q) => q("select * from notifications")), /permission denied/);
 
 console.log(`\n${passed} passed, ${failed} failed`);

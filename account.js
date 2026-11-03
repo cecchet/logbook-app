@@ -562,13 +562,14 @@
       const hd = srv && ui.heads[srv.id];
       const state = !srv ? "Only on this device" : changed && newer ? "Changed here, and newer online" : changed ? "Changed on this device" : newer ? "Newer online" : "Up to date";
       const cls = !srv ? "info" : changed || newer ? "req" : "pass";
-      return h("div", { class: "account-entry" }, [
+      return h("div", { class: "account-entry account-entry-stack" }, [h("div", { class: "account-entry-head" }, [
         h("span", { class: "account-entry-main" }, [
           h("strong", {}, [localTitle(s)]), openNow(s) && app.workspaceShown() ? h("span", { class: "element-desc" }, [" (open)"]) : null,
           h("span", { class: "element-desc" }, [" " + [srv && srv.digitalNumber, hd && hd.status && hd.status !== "active" ? hd.status : null, "saved " + new Date(s.updatedAt).toLocaleDateString()].filter(Boolean).join(" · ")]),
         ]),
         h("span", { class: "badge " + cls }, [state]),
-        h("span", { class: "account-row-actions" }, [
+      ]),
+        actions(
           btn("View the rollcage", () => app.openLocal(s.sessionId, "rollcage"), "small secondary"),
           srv ? btn("View the event log", () => app.openLocal(s.sessionId, "events"), "small secondary") : null,
           srv && staff ? btn("QR sticker", () => logbookSticker(srv.id), "small secondary") : null,
@@ -576,8 +577,9 @@
           srv && changed && staff ? btn("Upload changes", () => uploadChanges(s), "small") : null,
           !srv && staff ? btn("Issue online", () => issueOnline(s), "small") : null,
           h("button", { type: "button", class: "btn small secondary", onclick: () => app.exportLocal(s.sessionId), title: "The logbook as a file, with its pictures: the competitor can import it into PassTech or the Rollcage assessment tool" }, ["Export to a file"]),
+          srv && staff ? emailOwnerButton(srv.id, srv.digitalNumber) : null,
           btn("Delete", () => deleteLocalLogbook(s), "small secondary"),
-        ]),
+        ),
       ]);
     });
     return [
@@ -725,6 +727,17 @@
     const out = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(out.error || "error " + r.status);
     return out;
+  }
+  // "Email owner": the owner on record gets how to reach the logbook again
+  // (a new owner after a sale, a lost email...).
+  function emailOwnerButton(logbookId, number, ownerEmail) {
+    return h("button", { type: "button", class: "btn small secondary", title: "Email the owner on record how to see, save and export this logbook", onclick: () => {
+      if (!confirm("Email " + (ownerEmail || "the owner on record") + " how to see, save and export logbook " + number + "?")) return;
+      say("pass", "Emailing the owner of " + number + "…");
+      notifyOwner(logbookId, "reminder").then(
+        (out) => say("pass", "Emailed the owner of " + number + " at " + out.to + "."),
+        (e) => say("fail", "The owner of " + number + " couldn't be emailed: " + e.message + "."));
+    } }, ["Email owner"]);
   }
   async function issue(allowDuplicate) {
     const rc = app.currentRollcage();
@@ -875,6 +888,7 @@
           app ? btn(localFor(lb.id) ? "Refresh on this device" : "Save to this device", () => download(lb.id).catch(fail), "small secondary") : null,
           app && localFor(lb.id) ? btn("Open", () => app.openLocal(localFor(lb.id).sessionId), "small secondary") : null,
           app ? btn("Export to a file", () => exportCar(lb).catch(fail), "small secondary") : null,
+          lb.status !== "closed" ? emailOwnerButton(lb.id, lb.digitalNumber, lb.ownerEmail) : null,
           // What scanning its QR sticker shows anyone (the owner's privacy choices applied).
           lb.publicToken && lb.publicEnabled
             ? h("a", { class: "btn small secondary", href: publicUrl(lb.publicToken), target: "_blank", rel: "noopener", title: "What anyone scanning its QR sticker sees" }, ["Public view"])
