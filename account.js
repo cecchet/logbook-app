@@ -2737,7 +2737,7 @@
     await load(withPictures ? withPictures.pictures.map((p) => p.sha256).filter(Boolean) : [], "cagePhotos");
   }
   // A tubing answer ({ material, diameter, thickness }) in words.
-  const TUBE_MATERIALS = { cds_dom: "DOM / CDS steel", chromoly_4130: "4130 chromoly", docol_r8: "Docol R8", t45: "T45", other: "other material" };
+  const TUBE_MATERIALS = { cds_dom: "DOM steel", cds: "CDS steel", chromoly_4130: "4130 chromoly", docol_r8: "Docol R8", t45: "T45", other: "other material" };
   function tubeLine(v) {
     if (!v || typeof v !== "object") return null;
     const dim = (x) => (x && x.val !== "" && x.val != null ? x.val + (x.unit === "mm" ? " mm" : '"') : null);
