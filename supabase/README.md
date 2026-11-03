@@ -21,6 +21,7 @@ document for technical directors for the reasoning; this is phase 1
 | `migrations/20261016000300_event_tech_sheets.sql` | Several tech sheets per event, one per group of classes (`event_tech_sheets`): a car gets the sheet listing its class, else the one for all other classes; teams (PassTech) and scrutineers can pick another of the event's sheets. `set_event_tech_sheets` for organizers |
 | `migrations/20261016000400_tech_sheet_visibility.sql` | Tech sheets Private (only through the events they're attached to) or Public (also listed in PassTech as the body's generic sheet, `public_tech_sheets`); signed out, only Public sheets can be read. The automatic sheets from the rulesets are never listed |
 | `migrations/20261027000000_offline_scrutineering.sql` | Scrutineering offline: `save_tech_sheet` refuses an edit whose `baseUpdatedAt` no longer matches the server's sheet (`conflict:`, SQLSTATE TS409) and accepts `offlineAt` (up to 3 days old) for the event windows, signatures and sticker issue times; scrutineers reserve sticker codes per event (`reserve_sticker_codes`, up to 200 unused) to print stickers offline, and `issue_sticker` issues under a reserved code (safe to retry) and finds a sheet by event and car number |
+| `migrations/20261103000000_owner_notifications.sql` | Emails to a car's owner (the app's `api/notify.js`, through Resend): `claim_notification` checks the caller may send it -- for `issued`, the scrutineer who issued the logbook, within the hour -- and records it in `notifications` so it goes out once. Later kinds (an amendment, an event added) are added there |
 | `../tools/test-db.mjs` | Runs the migrations in an in-process PostgreSQL and checks every role and rule: `npm install`, then `npm run test:db` |
 
 ## How it works
@@ -69,3 +70,10 @@ document for technical directors for the reasoning; this is phase 1
 Before real use: Supabase's built-in email sender allows only a few emails
 an hour. Set up your own SMTP sender (Authentication → Emails → SMTP
 settings) before a pilot event.
+
+**Owner emails** (a logbook issued -- `api/notify.js`, a Vercel function):
+they go through the same Resend account and domain as the sign-in emails,
+from `logbook@frogracing.us`. In Resend, create an API key with sending
+access to frogracing.us; in Vercel (the logbook project → Settings →
+Environment Variables), add it as `RESEND_API_KEY`, then redeploy. Without
+it, issuing still works and the app says the owner couldn't be emailed.

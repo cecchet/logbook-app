@@ -93,6 +93,12 @@
   const fmtDate = (d) => (d ? new Date(d + (String(d).length === 10 ? "T12:00:00" : "")).toLocaleDateString() : "");
   const isoDay = (offsetDays, from) => new Date((from ? Date.parse(from + "T12:00:00") : Date.now()) + offsetDays * 864e5).toISOString().slice(0, 10);
   const carLine = (x) => [x.year, x.make, x.model].filter(Boolean).join(" ");
+  // A logbook's heading, the same on this device and online: the car (year
+  // make model), then the cage's own name when it says something else.
+  const carTitle = (car, name) => {
+    const line = carLine(car);
+    return line ? (name && name !== line ? line + " -- “" + name + "”" : line) : name || "Unnamed logbook";
+  };
   const bodyCode = (id) => (id || "").toUpperCase();
   const bodyName = (id) => (ui.bodies.find((b) => b.id === id) || {}).name || (id || "").toUpperCase();
 
@@ -539,6 +545,8 @@
     app.deleteLocal(s.sessionId);
     say("pass", "Deleted " + name + " from this device.");
   }
+  const av = (s, k) => (s.answers && s.answers[k] && s.answers[k].value) || "";
+  const localTitle = (s) => carTitle({ year: av(s, "vehicle_year"), make: av(s, "vehicle_manufacturer"), model: av(s, "vehicle_model") }, s.vehicle && s.vehicle.name);
   function renderSync() {
     if (!app) return [];
     const staff = ui.roles && ui.roles.accreditations.length > 0;
@@ -556,7 +564,7 @@
       const cls = !srv ? "info" : changed || newer ? "req" : "pass";
       return h("div", { class: "account-entry" }, [
         h("span", { class: "account-entry-main" }, [
-          h("strong", {}, [s.vehicle.name || "Unnamed logbook"]), openNow(s) && app.workspaceShown() ? h("span", { class: "element-desc" }, [" (open)"]) : null,
+          h("strong", {}, [localTitle(s)]), openNow(s) && app.workspaceShown() ? h("span", { class: "element-desc" }, [" (open)"]) : null,
           h("span", { class: "element-desc" }, [" " + [srv && srv.digitalNumber, hd && hd.status && hd.status !== "active" ? hd.status : null, "saved " + new Date(s.updatedAt).toLocaleDateString()].filter(Boolean).join(" · ")]),
         ]),
         h("span", { class: "badge " + cls }, [state]),
@@ -567,6 +575,7 @@
           srv && (newer || changed) ? btn("Refresh", () => download(srv.id).catch(fail), "small secondary") : null,
           srv && changed && staff ? btn("Upload changes", () => uploadChanges(s), "small") : null,
           !srv && staff ? btn("Issue online", () => issueOnline(s), "small") : null,
+          h("button", { type: "button", class: "btn small secondary", onclick: () => app.exportLocal(s.sessionId), title: "The logbook as a file, with its pictures: the competitor can import it into PassTech or the Rollcage assessment tool" }, ["Export to a file"]),
           btn("Delete", () => deleteLocalLogbook(s), "small secondary"),
         ]),
       ]);
@@ -706,6 +715,17 @@
     const vin = answer(ans, "vehicle_vin").toUpperCase();
     return rc.vehicle && rc.vehicle.org === "ara" && acc && acc.code && vin.length >= 6 && !answer(ans, "vehicle_logbook_number") ? acc.code + "-" + vin.slice(-6) : null;
   }
+  // Emails the owner about their logbook (the app's /api/notify, through
+  // Resend): the database checks the caller may, and sends each one once.
+  async function notifyOwner(logbookId, kind, ref) {
+    const { data } = await sb.auth.getSession();
+    const token = data && data.session && data.session.access_token;
+    if (!token) throw new Error("not signed in");
+    const r = await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ logbookId, kind, ref }) });
+    const out = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(out.error || "error " + r.status);
+    return out;
+  }
   async function issue(allowDuplicate) {
     const rc = app.currentRollcage();
     const ans = rc.answers || {};
@@ -744,7 +764,11 @@
       // its photos marked as online (their hashes).
       const linked = withShas(rc, photos.shaById);
       app.linkCurrent({ id: ui.issued.id, digitalNumber: ui.issued.digitalNumber, lastSeq: 1, fingerprint: fingerprint(syncKey(linked)), syncedAt: new Date().toISOString(), status: "active", issuingBody: rc.vehicle.org }, photos.shaById);
-      say("pass", (existingBook ? "Existing logbook added as " : "Logbook ") + ui.issued.digitalNumber + (existingBook ? "" : " issued") + (photos.pictures.length || photos.paperPages.length ? " with its photos" : "") + (pastEvents.length ? " and past events" : "") + ". The owner can now sign in with " + ownerEmail + " to see it.");
+      const done = (existingBook ? "Existing logbook added as " : "Logbook ") + ui.issued.digitalNumber + (existingBook ? "" : " issued") + (photos.pictures.length || photos.paperPages.length ? " with its photos" : "") + (pastEvents.length ? " and past events" : "") + ". ";
+      say("pass", done + "Emailing the owner (" + ownerEmail + ")…");
+      notifyOwner(ui.issued.id, "issued").then(
+        () => say("pass", done + "The owner was emailed at " + ownerEmail + " -- they sign in with that address to see it."),
+        (e) => say("fail", done + "The owner couldn't be emailed (" + e.message + "): they can sign in with " + ownerEmail + " to see it."));
       loadAll();
     } catch (e) {
       ui.busy = null;
@@ -839,7 +863,7 @@
       ui.found && !ui.found.length ? desc("No logbook found.") : null,
       ui.found && ui.found.length === 50 ? desc("Showing the 50 most recent -- add filters to narrow it down.") : null,
       (ui.found || []).map((lb) => h("div", { class: "account-card account-card-thumb" }, [thumb(lb.photo), h("div", { class: "account-card-body" }, [
-        h("div", { class: "account-card-title" }, [carLine(lb) || lb.carName || "Car", " · ", lb.digitalNumber, lb.status !== "active" ? " · " + lb.status : ""]),
+        h("div", { class: "account-card-title" }, [carTitle(lb, lb.carName), " · ", lb.digitalNumber, lb.status !== "active" ? " · " + lb.status : ""]),
         desc([lb.vin ? (lb.hasVin ? "VIN " : "Chassis ") + lb.vin : "No VIN", bodyName(lb.body) + (lb.bodyNumbers[lb.body] ? " logbook " + lb.bodyNumbers[lb.body] : ""),
               "owner " + [lb.ownerName, lb.ownerEmail].filter(Boolean).join(", "),
               "issued " + fmtDate(lb.issuedAt) + (lb.issuedBy && (lb.issuedBy.name || lb.issuedBy.email) ? " by " + (lb.issuedBy.name || lb.issuedBy.email) : "")].join(" · ")),
@@ -850,6 +874,7 @@
           lb.records ? null : btn("Show records", () => showRecords(lb), "small secondary"),
           app ? btn(localFor(lb.id) ? "Refresh on this device" : "Save to this device", () => download(lb.id).catch(fail), "small secondary") : null,
           app && localFor(lb.id) ? btn("Open", () => app.openLocal(localFor(lb.id).sessionId), "small secondary") : null,
+          app ? btn("Export to a file", () => exportCar(lb).catch(fail), "small secondary") : null,
           // What scanning its QR sticker shows anyone (the owner's privacy choices applied).
           lb.publicToken && lb.publicEnabled
             ? h("a", { class: "btn small secondary", href: publicUrl(lb.publicToken), target: "_blank", rel: "noopener", title: "What anyone scanning its QR sticker sees" }, ["Public view"])
@@ -3108,7 +3133,7 @@
     const rc = app.currentRollcage();
     const srv = rc.vehicle && rc.vehicle.server;
     return h("div", { class: "account-open-bar" }, [
-      h("span", { class: "account-open-name" }, [h("strong", {}, [(rc.vehicle && rc.vehicle.name) || "Unnamed logbook"]), srv ? " · " + srv.digitalNumber : " · not issued yet",
+      h("span", { class: "account-open-name" }, [h("strong", {}, [localTitle(rc)]), srv ? " · " + srv.digitalNumber : " · not issued yet",
         app.isDirty() ? h("span", { class: "element-desc" }, [" · unsaved changes"]) : null]),
       h("span", { class: "account-row-actions" }, [
         btn("Save on this device", () => { app.save(); setTimeout(render, 0); }, app.isDirty() ? "small" : "small secondary"),

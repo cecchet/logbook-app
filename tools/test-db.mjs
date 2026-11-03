@@ -675,5 +675,22 @@ await check("a sticker for a sheet made offline: by event and car number, issued
 await refused("a sticker made offline more than 3 days ago", () => rpc(S2, "issue_sticker", [{ kind: "car", techSheet: sheet31.id, code: codes[2], offlineAt: ago(4 * 864e5) }]), /more than 3 days ago/);
 await refused("nobody reads the reservations directly", () => as(S2, (q) => q("select code from sticker_code_reservations")), /permission denied/);
 
+// ---- Emails to the owner (claim_notification) ----------------------------------
+console.log("\nOwner notifications");
+await refused("only the scrutineer who issued it notifies its owner", () => rpc(S1, "claim_notification", [custom.id, "issued"]), /only the scrutineer who issued it/);
+await refused("signed out, nobody can", () => rpc(null, "claim_notification", [custom.id, "issued"]), /permission denied|not signed in/);
+await check("the issuing scrutineer gets what the email says", async () => {
+  const n = await rpc(S2, "claim_notification", [custom.id, "issued"]);
+  assert(n.to === "maker@car.test" && n.ownerName === "Morgan Maker" && n.car === "2019 Custom Rally buggy" && n.carName === "Blue buggy" && n.digitalNumber === custom.digitalNumber && n.issuedBy, JSON.stringify(n));
+});
+await refused("...once", () => rpc(S2, "claim_notification", [custom.id, "issued"]), /already sent/);
+await refused("an unknown kind", () => rpc(S2, "claim_notification", [custom.id, "spam"]), /unknown notification/);
+await check("not an hour after issuing it", async () => {
+  await db.exec(`update logbooks set issued_at = now() - interval '2 hours' where id = '${photoBook.id}'`);
+  try { await rpc(S2, "claim_notification", [photoBook.id, "issued"]); throw new Error("was allowed"); }
+  catch (e) { assert(/too long after/.test(e.message), e.message); }
+});
+await refused("nobody reads the notifications directly", () => as(S2, (q) => q("select * from notifications")), /permission denied/);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
