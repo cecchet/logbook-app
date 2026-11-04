@@ -86,7 +86,7 @@ Scrutineers see **Ready to issue?** above the logbook: everything it still needs
 
 ![Ready to issue? with what's still missing.](L12-ready.png)
 
-Once everything has a tick, **Issue logbook** asks you to confirm, uploads the logbook's photos and records it online. It gets its digital number (like FL-7KQ2-M9XD), and the owner can sign in with their email to see it. The record can't be edited afterwards, only added to.
+Once everything has a tick, **Issue logbook** asks you to confirm, uploads the logbook's photos and records it online. It gets its digital number (like FL-7KQ2-M9XD), and the owner is emailed (from logbook@frogracing.us) how to see it: they sign in with that email and open My garage. **Email owner**, on the logbook's card in the library, sends that email again. The record can't be edited afterwards, only added to.
 
 After that, the panel shows **Issued as** with its number. Changes made to the cage later are uploaded from the Logbook library (**Upload changes**), as an amendment.
 
@@ -104,15 +104,29 @@ Entries you add here are saved with the logbook on your device and in its export
 
 ## The logbook library
 
-**Logbook library** lists the logbooks you can open:
+**Logbook library** lists the logbooks you can open. Each logbook is a card, the same wherever it appears: the car's photo, the car (and the cage's own name) with its logbook number, then its VIN, sanctioning body and logbook number, owner, and who issued it and when. A logbook saved in this browser also shows when it was saved, and a badge: **Up to date**, **Changed on this device**, **Newer online** or **Only on this device**.
 
-- **On this device**: the logbooks saved in this browser, each with whether it's **Up to date**, **Changed on this device**, **Newer online** or only on this device. **View the rollcage** and **View the event log** open it; **Refresh** brings in what's newer online; **Upload changes** sends cage changes made here (scrutineers); **Issue online** issues a logbook that isn't online yet; **QR sticker** prints its sticker (scrutineers); **Delete** removes it from this device. **Check for updates** compares them all with the online logbooks, and **Refresh all** updates every one that's out of date.
-- **My garage**: for car owners, the cars whose logbook lists your email. **Save to this device** downloads one, and **Open** then shows the whole logbook, log included. **Export to a file** downloads it as a file, with its photos: the file the Rollcage assessment tool and PassTech import (in PassTech, My gear's **Import from a file** adds it as your car's rollcage). **Copy public link** and **Open public view** share it, and **Privacy and public link** chooses what that link shows (see below).
-- **Find a logbook online** (scrutineers): search by number, VIN, owner, car, make, model, year or the scrutineer who issued it, or **Scan a QR sticker**. **Logbooks I issued** lists the ones you issued, newest first. Each result shows the car's photo and who issued it, and can be saved to this device or opened; **Public view** shows what anyone scanning its QR sticker sees, with the owner's privacy choices applied.
+**Click a card** to show what you can do with it; clicking another card closes the first. Its buttons are always in the same order, each one only where it applies:
+
+- **View the rollcage** and **View the event log** open the logbook saved on this device.
+- **Record history** lists everything recorded on it online: its issue, amendments, transfers, corrections, notes, inspections and DNFs, with who recorded each one and when.
+- **QR sticker** prints its sticker (scrutineers).
+- **Save to this device** downloads it, with its photos; once saved, **Refresh** brings in what's newer online.
+- **Upload changes** sends cage changes made here as an amendment, and **Issue online** issues a logbook that isn't online yet (scrutineers).
+- **Export to a file** downloads it as a file, with its photos: the file the Rollcage assessment tool and PassTech import (in PassTech, My gear's **Import from a file** adds it as your car's rollcage). A scrutineer can send it to the car's owner this way.
+- **Email owner** emails the owner on record how to see, save and export the logbook (scrutineers; at most once every 5 minutes). After a sale, that's the new owner.
+- **Public view** shows what anyone scanning its QR sticker sees, with the owner's privacy choices applied.
+- **Delete** removes it from this device.
+
+The library has three sections:
+
+- **On this device**: the logbooks saved in this browser. **Check for updates** compares them all with the online logbooks, and **Refresh all** updates every one that's out of date. **Import a file** adds a logbook from a file.
+- **My garage**: for car owners, the cars whose logbook lists your email. **Save to this device** downloads one, and **Open** then shows the whole logbook, log included. **Export to a file** downloads it as a file for PassTech or the Rollcage assessment tool. **Copy public link** and **Open public view** share it, and **Privacy and public link** chooses what that link shows (see below).
+- **Find a logbook online** (scrutineers): search by number, VIN, owner, car, make, model, year or the scrutineer who issued it, or **Scan a QR sticker**. **Logbooks I issued** lists the ones you issued, newest first.
 
 Download the logbooks you'll need before going where there's no signal: a logbook on this device opens without a connection.
 
-![The Logbook library: a logbook on this device, and a search.](L20-library.png)
+![The Logbook library: a logbook on this device, its card clicked to show its buttons, and a search.](L20-library.png)
 
 ### Your car's public link
 

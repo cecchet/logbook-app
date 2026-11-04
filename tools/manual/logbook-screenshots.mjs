@@ -11,6 +11,8 @@ const mode = (re) => `${click(re, ".account-modes")} ${wait(800)} window.scrollT
 const unstick = `[...document.querySelectorAll('body *')].forEach(x => { if (getComputedStyle(x).position === 'sticky') x.style.setProperty('position', 'static', 'important'); });`;
 // Marks an element (found by the expression) with an id, for a clipped shot.
 const mark = (expr, id) => `{ ${unstick} document.getElementById('${id}')?.removeAttribute('id'); const e = ${expr}; if (!e) throw new Error('no element for ${id}'); e.id = '${id}'; e.scrollIntoView({ block: 'start' }); } ${wait(400)}`;
+// A search result's card (the last one with that title: the device's copy comes first).
+const found = (titleRe) => `[...document.querySelectorAll('.account-card')].filter(c => ${titleRe}.test(c.querySelector('.account-card-title')?.textContent || '')).pop()`;
 const card = (titleRe) => `[...document.querySelectorAll('.account-card')].find(c => ${titleRe}.test(c.querySelector('.account-card-title')?.textContent || ''))`;
 const section = (titleRe) => `[...document.querySelectorAll('.account-panel details, .account-panel section, .account-panel .account-section')].find(s => ${titleRe}.test(s.textContent.trim()))`;
 const PANEL = ".account-panel";
@@ -45,7 +47,9 @@ export default async function (a) {
   await a.eval(`${click("/Find a logbook online/", PANEL)}
     const i = document.querySelector('${PANEL} .account-section-body .field input'); i.value = 'Subaru'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); ${wait(200)}
     ${click("/^Find$/", PANEL)} ${wait(1200)}`);
-  await a.eval(`[...${card("/Subaru/")}.querySelectorAll('button')].find(b => b.textContent.trim() === 'Save to this device').click(); ${wait(4000)}
+  // A logbook's card shows its buttons once clicked (the device's copy and the search result open together).
+  await a.eval(`${found("/Subaru/")}.querySelector('.account-card-title').click(); ${wait(500)}
+    [...${found("/Subaru/")}.querySelectorAll('button')].find(b => /^(Save to this device|Refresh)$/.test(b.textContent.trim())).click(); ${wait(4000)}
     [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Discard' && b.offsetParent)?.click(); ${wait(1500)} window.scrollTo(0, 0);`);
   await a.shot("L20-library", PANEL);
 
