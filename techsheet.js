@@ -21,6 +21,9 @@
     (children || []).flat(3).forEach((c) => { if (c != null && c !== false) node.append(c.nodeType ? c : String(c)); });
     return node;
   }
+  // A piece of gear's tech sticker codes (PassTech: stickerCodes, one per sanctioning body and
+  // discipline; stickerCode, the single one from before).
+  const stickerCodesOf = (g) => [...new Set([...((g && g.stickerCodes) || []), ...(g && g.stickerCode ? [g.stickerCode] : [])])];
   const OCCUPANTS = [["driver", "Driver"], ["codriver", "Co-driver"]];
   // "Helmet" -> "helmet" after "Driver ", but "HNR" stays "HNR".
   const lc = (s) => (/^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s);
@@ -132,7 +135,8 @@
       cat === "helmet" ? (e.helmetType === "full_face" ? "full face" : "open face") + (e.hasVisor ? " with shield" : "") : "", e.seatMounting ? (e.seatMounting === "rails" ? "on rails" : "fixed") : "",
       certs.join(" · "), units.join(" · "), e.towHookFront ? "front" : "", e.towHookRear ? "rear" : "",
       (e.windowBreakerUnits || []).length ? e.windowBreakerUnits.length + " tool(s)" : "", (e.triangleUnits || []).length ? e.triangleUnits.length + " triangle(s)" : "",
-      meta.presenceOnly && e.skipped === false ? "present" : "", e.stickerCode ? "tech sticker " + e.stickerCode.slice(0, 4) + "-" + e.stickerCode.slice(4) : ""].filter(Boolean).join(" · ");
+      meta.presenceOnly && e.skipped === false ? "present" : "",
+      stickerCodesOf(e).length ? "tech sticker" + (stickerCodesOf(e).length > 1 ? "s " : " ") + stickerCodesOf(e).map((c) => c.slice(0, 4) + "-" + c.slice(4)).join(", ") : ""].filter(Boolean).join(" · ");
   }
 
   // A helmet's style, like PassTech's picker: open face (the default, as PassTech's helmetStyle
@@ -603,18 +607,28 @@
       } catch (e) { stickerNotes.set(res, e.message || String(e)); }
       opts.onChange();
     }
+    // Whether a gear sticker is for another body, or another discipline of the event's body.
+    const offScope = (st) => {
+      const sc = opts.stickerScope;
+      if (!sc || !sc.body || !st.body) return false;
+      return st.body !== sc.body || (!!sc.discipline && !!st.discipline && st.discipline !== sc.discipline);
+    };
     function stickerRow(res, dec, readSticker) {
       const st = res.sticker;
-      const teamCode = dec && dec.gear && dec.gear.stickerCode;
+      // The team's gear may carry several (one per sanctioning body and discipline).
+      const teamCodes = stickerCodesOf(dec && dec.gear).filter((c) => !st || st.code !== c);
       const note = stickerNotes.get(res);
       const canRead = ed && opts.lookupSticker;
-      if (!st && !teamCode && !note && !canRead) return null;
+      if (!st && !teamCodes.length && !note && !canRead) return null;
       return h("div", { class: "techsheet-sticker" }, [
         st ? h("span", { class: "techsheet-chip " + (st.status === "valid" ? "pass" : "fail"), title: "Read from the sticker: its gear details and photos" }, [
           "Sticker " + Stickers.fmtCode(st.code) + (st.season ? " · " + [st.bodyName || String(st.body || "").toUpperCase(), st.disciplineName].filter(Boolean).join(" ") + " " + st.season + " season" : "") +
           " · " + (st.status === "valid" ? "valid" : st.status) + (st.offlineAsOf ? " (checked offline, as of " + new Date(st.offlineAsOf).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + ")" : "")]) : null,
-        teamCode && (!st || st.code !== teamCode) ? h("span", { class: "element-desc" }, ["The team's gear has sticker " + Stickers.fmtCode(teamCode) + " ",
-          canRead ? h("button", { type: "button", class: "btn small secondary", onclick: () => readSticker(teamCode) }, ["Check it"]) : null]) : null,
+        // A sticker from another body, or another of its disciplines, isn't good for this event.
+        st && offScope(st) ? h("span", { class: "techsheet-chip fail" }, ["Not for this event: it's for " + [st.bodyName || String(st.body || "").toUpperCase(), st.disciplineName].filter(Boolean).join(" ") +
+          ", this event is " + [opts.stickerScope.bodyName || String(opts.stickerScope.body || "").toUpperCase(), opts.stickerScope.disciplineName].filter(Boolean).join(" ")]) : null,
+        teamCodes.map((c) => h("span", { class: "element-desc" }, ["The team's gear has sticker " + Stickers.fmtCode(c) + " ",
+          canRead ? h("button", { type: "button", class: "btn small secondary", onclick: () => readSticker(c) }, ["Check it"]) : null])),
         canRead ? h("button", { type: "button", class: "btn small secondary", title: "Read a sticker already on this item: fills in its details and photos",
           onclick: () => Stickers.scanDialog(readSticker) }, ["🔳 Scan a sticker"]) : null,
         note ? h("span", { class: "element-desc" }, [note]) : null,

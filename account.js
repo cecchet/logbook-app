@@ -1318,7 +1318,9 @@
         ? select(eventSheets(ui.event).map((x) => [x.id, x.title + sheetClasses(x)]), t.templateId || "", (v) => { if (v && v !== t.templateId) openTechSheet(t.x, v); })
         : input({ value: t.template.title, disabled: true }, () => {}))]) : null,
       TechSheet.sheet({ template: t.template, variant: t.variant, header: t.header, competitor: t.competitor, inspection: t.inspection,
-        editable, view: t.view, photoUrl: techPhotoUrl, addPhoto: addTechPhoto, lookupSticker, setVariant: (v) => { t.variant = v; }, onChange: render }),
+        editable, view: t.view, photoUrl: techPhotoUrl, addPhoto: addTechPhoto, lookupSticker, setVariant: (v) => { t.variant = v; }, onChange: render,
+        // A gear sticker is good only for its own body and discipline's events.
+        stickerScope: { body: ev.body_id, discipline: ev.discipline || null, bodyName: bodyName(ev.body_id), disciplineName: ev.discipline ? disciplineName(ev.body_id, ev.discipline) : null } }),
       // (The state as opened, once the first render has filled in what's derived.)
       t.savedState == null ? void (t.savedState = sheetState(t)) : null,
       editable && open && canSign && myRole === "chief" ? h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: t.signAsChief, onchange: (e) => { t.signAsChief = e.target.checked; } }), " Also sign as chief scrutineer"]) : null,
