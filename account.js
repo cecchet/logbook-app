@@ -909,12 +909,19 @@
       id ? "issued " + fmtDate(x.issuedAt) + (x.issuedBy ? " by " + x.issuedBy : "") : "not issued yet",
       s ? "saved on this device " + new Date(s.updatedAt).toLocaleDateString() + (openNow(s) && app.workspaceShown() ? " (open)" : "") : null,
     ].filter(Boolean).join(" · ");
-    return h("div", { class: "account-card account-card-thumb" }, [x.photo, h("div", { class: "account-card-body" }, [
+    // Its buttons show once it's picked (a click on the card), one card at a time.
+    const key = id || (s && s.sessionId);
+    const open = ui.pickedCard === key;
+    const pick = () => { ui.pickedCard = open ? null : key; render(); };
+    return h("div", { class: "account-card account-card-thumb account-card-pick" + (open ? " picked" : ""), tabindex: "0", "aria-expanded": open ? "true" : "false",
+      title: open ? "" : "Click to show what you can do with it",
+      onclick: (e) => { if (!e.target.closest("button, a, input, select, ol")) pick(); },
+      onkeydown: (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); pick(); } } }, [x.photo, h("div", { class: "account-card-body" }, [
       h("div", { class: "account-card-title account-card-title-row" }, [
         h("span", {}, [x.title, x.number ? " · " + x.number : "", x.status && x.status !== "active" ? " · " + x.status : ""]),
         state ? h("span", { class: "badge " + cls }, [state]) : null]),
       desc(details),
-      actions(
+      !open ? null : actions(
         s ? btn("View the rollcage", () => app.openLocal(s.sessionId, "rollcage"), "small secondary") : null,
         s && id ? btn("View the event log", () => app.openLocal(s.sessionId, "events"), "small secondary") : null,
         id ? recordHistoryButton(id) : null,
@@ -931,7 +938,7 @@
           : id && x.publicToken ? h("span", { class: "element-desc" }, ["Public link off"]) : null,
         s ? btn("Delete", () => deleteLocalLogbook(s), "small secondary") : null,
       ),
-      id ? recordHistory(id) : null,
+      open && id ? recordHistory(id) : null,
     ])]);
   }
   function renderFind() {

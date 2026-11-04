@@ -326,3 +326,8 @@
 /* A sticker being viewed: the sticker itself, as printed. */
 .sticker-picture { margin: 10px 0; }
 .sticker-picture svg { display: block; width: 140px; height: 140px; border: 1px solid var(--border); border-radius: 4px; }
+/* A logbook card: click it to show its buttons (one at a time). */
+.account-card-pick { cursor: pointer; }
+.account-card-pick:hover { border-color: var(--accent); }
+.account-card-pick.picked { border-color: var(--accent); }
+.account-card-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
