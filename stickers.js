@@ -213,6 +213,10 @@
       data.status === "expired" ? (data.kind === "gear" ? " (over)" : " -- for an event that's over") : null,
       data.status === "void" ? " -- " + (data.voidReason === "replaced" && data.replacedBy ? "replaced by sticker " + fmtCode(data.replacedBy) : data.voidReason || "voided") + (data.voidedAt ? " (" + fmtDate(data.voidedAt) + ")" : "") : null,
     ]));
+    // The sticker itself, as printed: its QR code, what it's for, its code, body and date.
+    const picture = h("div", { class: "sticker-picture", title: "The sticker as printed" });
+    svg(data).then((el) => picture.append(el)).catch(() => picture.remove());
+    out.push(picture);
     const who = [data.inspector && data.inspector.name ? "Inspected by " + data.inspector.name + (data.inspector.license ? " (" + data.inspector.license + ")" : "") : "Issued",
       data.bodyName, "on " + fmtDate(data.issuedAt)].filter(Boolean).join(" · ");
     const where = data.event ? [data.event.name, data.event.location, fmtDate(data.event.startsOn) + (data.event.endsOn && data.event.endsOn !== data.event.startsOn ? " to " + fmtDate(data.event.endsOn) : "")].filter(Boolean).join(" · ") : null;

@@ -10,6 +10,10 @@
 .account-roles { display: inline-flex; flex-wrap: wrap; gap: 6px; flex: 1; }
 .account-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
 .account-actions a.btn { text-decoration: none; }
+/* A button's small icon (account.js ICONS), before its label. */
+.btn[data-icon]::before { content: attr(data-icon); margin-right: 5px; font-size: 0.95em; }
+/* The QR sticker buttons: a little black and white QR code. */
+.btn[data-icon="qr"]::before { content: ""; display: inline-block; width: 1em; height: 1em; vertical-align: -0.15em; border: 1px solid #fff; background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 21 21' shape-rendering='crispEdges'%3E%3Crect width='21' height='21' fill='%23fff'/%3E%3Cpath fill='%23000' d='M0 0h7v7H0zM14 0h7v7h-7zM0 14h7v7H0z'/%3E%3Cpath fill='%23fff' d='M1 1h5v5H1zM15 1h5v5h-5zM1 15h5v5H1z'/%3E%3Cpath fill='%23000' d='M2 2h3v3H2zM16 2h3v3h-3zM2 16h3v3H2zM8 0h1v2H8zM10 1h2v1h-2zM9 3h2v2H9zM12 4h1v3h-1zM8 6h2v1H8zM0 8h2v1H0zM3 8h3v1H3zM8 8h3v2H8zM12 8h2v1h-2zM15 8h2v1h-2zM19 8h2v2h-2zM1 10h2v2H1zM5 10h2v1H5zM11 10h1v3h-1zM13 10h3v1h-3zM17 11h2v2h-2zM0 12h1v1H0zM4 12h3v1H4zM8 12h2v2H8zM14 12h2v2h-2zM20 12h1v2h-1zM8 15h3v1H8zM12 14h1v3h-1zM15 15h2v2h-2zM18 15h3v1h-3zM9 17h2v2H9zM14 18h3v1h-3zM19 17h2v3h-2zM8 20h3v1H8zM12 19h2v2h-2zM16 20h2v1h-2z'/%3E%3C/svg%3E") center / contain no-repeat; }
 .account-section { border-top: 1px solid var(--border); margin-top: 12px; padding-top: 8px; }
 .account-section-head { background: none; border: none; padding: 4px 0; font: inherit; font-weight: 600; color: var(--ink); cursor: pointer; }
 .account-section-body { padding: 4px 0 4px 16px; }
@@ -306,6 +310,9 @@
 .account-privacy-shows .field { flex: none; max-width: 260px; }
 .account-card-thumb { display: flex; gap: 12px; align-items: flex-start; }
 .account-card-thumb .account-card-body { flex: 1; min-width: 0; }
+/* A logbook card's title, with its status badge at the right. */
+.account-card-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.account-card-title-row .badge { flex: none; }
 .account-thumb { width: 96px; height: 72px; flex: none; object-fit: cover; border-radius: var(--radius); border: 1px solid var(--border); }
 .account-thumb-none { display: flex; align-items: center; justify-content: center; font-size: 28px; color: var(--muted); background: var(--surface-2, transparent); }
 @media (max-width: 520px) { .account-thumb { width: 64px; height: 48px; } }
@@ -316,3 +323,6 @@
 .account-privacy-pic:not(.picked) .account-thumb { opacity: 0.55; }
 .account-public-model img { max-width: 100%; width: 480px; border-radius: var(--radius); border: 1px solid var(--border); }
 .account-public-tubes { margin: 6px 0; padding-left: 18px; }
+/* A sticker being viewed: the sticker itself, as printed. */
+.sticker-picture { margin: 10px 0; }
+.sticker-picture svg { display: block; width: 140px; height: 140px; border: 1px solid var(--border); border-radius: 4px; }

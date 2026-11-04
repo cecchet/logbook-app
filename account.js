@@ -79,7 +79,16 @@
   const dateInput = (value, onchange) => h("input", { type: "date", value, onchange: (e) => onchange(e.target.value) });
   const select = (options, value, onchange) => h("select", { onchange: (e) => onchange(e.target.value) },
     options.map(([v, label]) => h("option", { value: v, selected: v === value }, [label])));
-  const btn = (label, onclick, cls) => h("button", { type: "button", class: "btn " + (cls || ""), onclick }, [label]);
+  // A logbook's buttons carry a small icon (data-icon, drawn by account.css
+  // before the label: the label's text stays as it is).
+  const ICONS = {
+    "View the rollcage": "🏎️", "View the event log": "📋", "QR sticker": "qr", "Scan a QR sticker": "qr", "Refresh": "🔄",
+    "Refresh on this device": "🔄", "Save to this device": "📥", "Upload changes": "⬆️", "Issue online": "✅",
+    "Export to a file": "💾", "Email owner": "✉️", "Delete": "🗑️", "Open": "📂", "Record history": "📜", "Hide record history": "📜",
+    "Public view": "🌐", "Open public view": "🌐", "Copy public link": "🔗", "Privacy and public link": "🔒",
+    "Import a file": "📂", "Check for updates": "🔄",
+  };
+  const btn = (label, onclick, cls) => h("button", { type: "button", class: "btn " + (cls || ""), onclick, "data-icon": ICONS[label] }, [label]);
   const actions = (...children) => h("div", { class: "account-actions" }, children);
   const desc = (...children) => h("p", { class: "element-desc" }, children);
   function section(key, title, body) {
@@ -434,7 +443,10 @@
       vehiclePhotos,
       events: pastEvents.concat(keptEvents, serverEvents),
     };
-    local.vehicle.server = { id: lb.id, digitalNumber: lb.digital_number, lastSeq: lastSeq(full), fingerprint: fingerprint(syncKey(local)), syncedAt: new Date().toISOString(), status: lb.status, issuingBody: lb.issuing_body };
+    local.vehicle.server = { id: lb.id, digitalNumber: lb.digital_number, lastSeq: lastSeq(full), fingerprint: fingerprint(syncKey(local)), syncedAt: new Date().toISOString(), status: lb.status, issuingBody: lb.issuing_body,
+      // For its card in the library (the same as a search result's).
+      issuedAt: lb.issued_at, issuedBy: (issueRec && issueRec.authorName) || lb.issued_by, hasVin: lb.has_vin !== false, ownerEmail: lb.owner_email,
+      publicToken: lb.public_token || null, publicEnabled: !!lb.public_enabled };
     return local;
   }
   const localFor = (id) => app.listLocal().find((s) => s.vehicle && s.vehicle.server && s.vehicle.server.id === id);
@@ -556,32 +568,7 @@
       ["vehicle_manufacturer", "vehicle_model", "vehicle_year", "vehicle_vin", "vehicle_owner_name", "vehicle_logbook_number"].map((k) => (s.answers && s.answers[k] && s.answers[k].value) || "")).join(" ").toLowerCase();
     const list = words.length ? all.filter((s) => words.every((w) => text(s).includes(w))) : all;
     const outOfDate = all.filter((s) => s.vehicle.server && newerOnline(s) && !locallyChanged(s)).map((s) => s.vehicle.server.id);
-    const rows = list.map((s) => {
-      const srv = s.vehicle.server;
-      const changed = locallyChanged(s), newer = newerOnline(s);
-      const hd = srv && ui.heads[srv.id];
-      const state = !srv ? "Only on this device" : changed && newer ? "Changed here, and newer online" : changed ? "Changed on this device" : newer ? "Newer online" : "Up to date";
-      const cls = !srv ? "info" : changed || newer ? "req" : "pass";
-      return h("div", { class: "account-entry account-entry-stack" }, [h("div", { class: "account-entry-head" }, [
-        h("span", { class: "account-entry-main" }, [
-          h("strong", {}, [localTitle(s)]), openNow(s) && app.workspaceShown() ? h("span", { class: "element-desc" }, [" (open)"]) : null,
-          h("span", { class: "element-desc" }, [" " + [srv && srv.digitalNumber, hd && hd.status && hd.status !== "active" ? hd.status : null, "saved " + new Date(s.updatedAt).toLocaleDateString()].filter(Boolean).join(" · ")]),
-        ]),
-        h("span", { class: "badge " + cls }, [state]),
-      ]),
-        actions(
-          btn("View the rollcage", () => app.openLocal(s.sessionId, "rollcage"), "small secondary"),
-          srv ? btn("View the event log", () => app.openLocal(s.sessionId, "events"), "small secondary") : null,
-          srv && staff ? btn("QR sticker", () => logbookSticker(srv.id), "small secondary") : null,
-          srv && (newer || changed) ? btn("Refresh", () => download(srv.id).catch(fail), "small secondary") : null,
-          srv && changed && staff ? btn("Upload changes", () => uploadChanges(s), "small") : null,
-          !srv && staff ? btn("Issue online", () => issueOnline(s), "small") : null,
-          h("button", { type: "button", class: "btn small secondary", onclick: () => app.exportLocal(s.sessionId), title: "The logbook as a file, with its pictures: the competitor can import it into PassTech or the Rollcage assessment tool" }, ["Export to a file"]),
-          srv && staff ? emailOwnerButton(srv.id, srv.digitalNumber) : null,
-          btn("Delete", () => deleteLocalLogbook(s), "small secondary"),
-        ),
-      ]);
-    });
+    const rows = list.map((s) => logbookCard(localInfo(s), staff));
     return [
       desc(staff
         ? "Logbooks saved in this browser. Download the logbooks you'll need (from an event, My garage or Find a logbook) before going where there's no signal; upload cage changes made here as an amendment."
@@ -592,7 +579,7 @@
         outOfDate.length ? btn("Refresh all (" + outOfDate.length + ")", () => downloadMany(outOfDate, "Refreshing"), "small") : null,
       ),
       all.length > 3 ? h("div", { class: "field-row" }, [field("Search this device", input({ value: ui.deviceSearch, "data-id": "device-search", placeholder: "name, car, VIN, owner, logbook number…" }, (v) => { ui.deviceSearch = v; render(); restoreFocus("device-search"); }))]) : null,
-      all.length ? h("div", { class: "account-card" }, rows.length ? rows : [desc("No logbook on this device matches.")]) : desc("No logbooks on this device yet."),
+      all.length ? (rows.length ? rows : desc("No logbook on this device matches.")) : desc("No logbooks on this device yet."),
     ];
   }
   // Re-rendering replaces the inputs: keep typing in the one that had focus.
@@ -614,7 +601,7 @@
         app && localFor(car.id) ? btn("Open", () => app.openLocal(localFor(car.id).sessionId), "small secondary") : null,
         app ? btn("Export to a file", () => exportCar(car).catch(fail), "small secondary") : null,
         car.publicEnabled ? btn("Copy public link", () => copy(publicUrl(car.publicToken)), "small secondary") : h("span", { class: "element-desc" }, ["Public link off"]),
-        car.publicEnabled ? h("a", { class: "btn small secondary", href: publicUrl(car.publicToken), target: "_blank", rel: "noopener" }, ["Open public view"]) : null,
+        car.publicEnabled ? h("a", { class: "btn small secondary", "data-icon": ICONS["Open public view"], href: publicUrl(car.publicToken), target: "_blank", rel: "noopener" }, ["Open public view"]) : null,
         btn("Privacy and public link", () => toggle("privacy-" + car.id), ui.show["privacy-" + car.id] ? "small" : "small secondary"),
       ),
       ui.show["privacy-" + car.id] ? renderPrivacy(car) : null,
@@ -731,7 +718,7 @@
   // "Email owner": the owner on record gets how to reach the logbook again
   // (a new owner after a sale, a lost email...).
   function emailOwnerButton(logbookId, number, ownerEmail) {
-    return h("button", { type: "button", class: "btn small secondary", title: "Email the owner on record how to see, save and export this logbook", onclick: () => {
+    return h("button", { type: "button", class: "btn small secondary", "data-icon": ICONS["Email owner"], title: "Email the owner on record how to see, save and export this logbook", onclick: () => {
       if (!confirm("Email " + (ownerEmail || "the owner on record") + " how to see, save and export logbook " + number + "?")) return;
       say("pass", "Emailing the owner of " + number + "…");
       notifyOwner(logbookId, "reminder").then(
@@ -776,7 +763,8 @@
       // The logbook on this device becomes the online logbook's local copy,
       // its photos marked as online (their hashes).
       const linked = withShas(rc, photos.shaById);
-      app.linkCurrent({ id: ui.issued.id, digitalNumber: ui.issued.digitalNumber, lastSeq: 1, fingerprint: fingerprint(syncKey(linked)), syncedAt: new Date().toISOString(), status: "active", issuingBody: rc.vehicle.org }, photos.shaById);
+      app.linkCurrent({ id: ui.issued.id, digitalNumber: ui.issued.digitalNumber, lastSeq: 1, fingerprint: fingerprint(syncKey(linked)), syncedAt: new Date().toISOString(), status: "active", issuingBody: rc.vehicle.org,
+        issuedAt: new Date().toISOString(), issuedBy: ((ui.roles.accreditations.find((a) => a.body === rc.vehicle.org) || {}).name) || me(), ownerEmail }, photos.shaById);
       const done = (existingBook ? "Existing logbook added as " : "Logbook ") + ui.issued.digitalNumber + (existingBook ? "" : " issued") + (photos.pictures.length || photos.paperPages.length ? " with its photos" : "") + (pastEvents.length ? " and past events" : "") + ". ";
       say("pass", done + "Emailing the owner (" + ownerEmail + ")…");
       notifyOwner(ui.issued.id, "issued").then(
@@ -833,12 +821,32 @@
       if (st.status !== "valid") say("fail", "Sticker " + Stickers.fmtCode(code) + " is " + st.status + (st.voidReason ? " (" + st.voidReason + ")" : "") + ": its logbook is listed below.");
     } catch (e) { fail(e); }
   }
-  async function showRecords(lb) {
-    try {
-      const r = await sb.from("records").select("seq, kind, created_at, author_email, body").eq("logbook_id", lb.id).order("seq");
-      if (r.error) throw r.error;
-      lb.records = r.data; render();
-    } catch (e) { fail(e); }
+  // A logbook's record history: everything recorded on it online (issue,
+  // amendments, transfers, corrections, notes, inspections...), read when
+  // first shown -- from a search result or a logbook saved on this device.
+  const recordsOf = {}; // logbook id -> its records
+  const RECORD_KINDS = { issue: "Issued", amendment: "Amendment", transfer: "Transfer", correction: "Correction", note: "Note",
+    inspection: "Inspection", post_event: "Post-event inspection", dnf: "DNF" };
+  async function toggleRecords(id) {
+    const key = "records-" + id;
+    if (!ui.show[key]) {
+      try {
+        const r = await sb.from("records").select("seq, kind, created_at, author_email, body").eq("logbook_id", id).order("seq");
+        if (r.error) throw r.error;
+        recordsOf[id] = r.data;
+      } catch (e) { return fail(e); }
+    }
+    toggle(key);
+  }
+  const recordHistoryButton = (id) => btn(ui.show["records-" + id] ? "Hide record history" : "Record history", () => toggleRecords(id), "small secondary");
+  function recordHistory(id) {
+    const recs = ui.show["records-" + id] && recordsOf[id];
+    if (!recs) return null;
+    if (!recs.length) return desc("No records.");
+    return h("ol", { class: "account-records" }, recs.map((r) => h("li", {}, [
+      (RECORD_KINDS[r.kind] || r.kind) + " -- " + new Date(r.created_at).toLocaleString() + " by " + r.author_email,
+      r.kind === "transfer" && r.body && r.body.ownerEmail ? " -- to " + [r.body.ownerName, r.body.ownerEmail].filter(Boolean).join(", ") : "",
+      r.body && (r.body.note || r.body.notes) ? ": " + (r.body.note || r.body.notes) : ""])));
   }
   // A search result's car photo (search_logbooks' photo), downloaded once.
   const thumbs = {}; // sha -> object URL, or null while loading / when it can't be read
@@ -851,6 +859,80 @@
         .catch(() => {});
     }
     return thumbs[sha] ? h("img", { class: "account-thumb", src: thumbs[sha], alt: "" }) : h("div", { class: "account-thumb account-thumb-none" }, ["🚗"]);
+  }
+  // A logbook saved on this device: its photo from this device (works offline).
+  const localThumbs = {}; // photo id -> data URL, or null while loading / when missing
+  function localThumb(s) {
+    const vp = s.vehiclePhotos && (s.vehiclePhotos.front || s.vehiclePhotos.rear);
+    if (vp && vp.id) {
+      if (!(vp.id in localThumbs)) {
+        localThumbs[vp.id] = null;
+        app.getPhoto(vp.id).then((rec) => { if (rec && rec.photo) { localThumbs[vp.id] = rec.photo; render(); } });
+      }
+      if (localThumbs[vp.id]) return h("img", { class: "account-thumb", src: localThumbs[vp.id], alt: "" });
+    }
+    return thumb(vp && vp.sha256);
+  }
+  // What a logbook's card shows, from this device's copy or a search result.
+  function localInfo(s) {
+    const srv = s.vehicle.server || null;
+    const hd = srv && ui.heads[srv.id];
+    return {
+      id: srv && srv.id, number: srv && srv.digitalNumber, status: (hd && hd.status) || (srv && srv.status) || "active",
+      title: localTitle(s), photo: localThumb(s),
+      vin: av(s, "vehicle_vin"), hasVin: !srv || srv.hasVin !== false,
+      body: (srv && srv.issuingBody) || (s.vehicle.org && s.vehicle.org !== "none" ? s.vehicle.org : null), bodyNumber: av(s, "vehicle_logbook_number"),
+      ownerName: av(s, "vehicle_owner_name"), ownerEmail: (srv && srv.ownerEmail) || av(s, "vehicle_owner_email"),
+      issuedAt: srv && (srv.issuedAt || s.vehicle.logbookDate), issuedBy: srv && srv.issuedBy,
+      publicToken: srv && srv.publicToken, publicEnabled: srv && srv.publicEnabled, local: s,
+    };
+  }
+  function foundInfo(lb) {
+    return {
+      id: lb.id, number: lb.digitalNumber, status: lb.status, title: carTitle(lb, lb.carName), photo: thumb(lb.photo),
+      vin: lb.vin, hasVin: lb.hasVin, body: lb.body, bodyNumber: lb.bodyNumbers[lb.body],
+      ownerName: lb.ownerName, ownerEmail: lb.ownerEmail, issuedAt: lb.issuedAt, issuedBy: lb.issuedBy && (lb.issuedBy.name || lb.issuedBy.email),
+      publicToken: lb.publicToken, publicEnabled: lb.publicEnabled, local: app ? localFor(lb.id) || null : null,
+    };
+  }
+  // A logbook's card -- the same on this device and in search results: its
+  // photo, car and number, details, then its buttons, always in this order.
+  function logbookCard(x, staff) {
+    const s = x.local, id = x.id;
+    const changed = !!(s && id && locallyChanged(s)), newer = !!(s && id && newerOnline(s));
+    const state = !s ? null : !id ? "Only on this device" : changed && newer ? "Changed here, and newer online" : changed ? "Changed on this device" : newer ? "Newer online" : "Up to date";
+    const cls = !id ? "info" : changed || newer ? "req" : "pass";
+    const details = [
+      x.vin ? (x.hasVin === false ? "Chassis " : "VIN ") + x.vin : "No VIN",
+      x.body ? bodyName(x.body) + (x.bodyNumber ? " logbook " + x.bodyNumber : "") : null,
+      x.ownerName || x.ownerEmail ? "owner " + [x.ownerName, x.ownerEmail].filter(Boolean).join(", ") : null,
+      id ? "issued " + fmtDate(x.issuedAt) + (x.issuedBy ? " by " + x.issuedBy : "") : "not issued yet",
+      s ? "saved on this device " + new Date(s.updatedAt).toLocaleDateString() + (openNow(s) && app.workspaceShown() ? " (open)" : "") : null,
+    ].filter(Boolean).join(" · ");
+    return h("div", { class: "account-card account-card-thumb" }, [x.photo, h("div", { class: "account-card-body" }, [
+      h("div", { class: "account-card-title account-card-title-row" }, [
+        h("span", {}, [x.title, x.number ? " · " + x.number : "", x.status && x.status !== "active" ? " · " + x.status : ""]),
+        state ? h("span", { class: "badge " + cls }, [state]) : null]),
+      desc(details),
+      actions(
+        s ? btn("View the rollcage", () => app.openLocal(s.sessionId, "rollcage"), "small secondary") : null,
+        s && id ? btn("View the event log", () => app.openLocal(s.sessionId, "events"), "small secondary") : null,
+        id ? recordHistoryButton(id) : null,
+        id && staff ? btn("QR sticker", () => logbookSticker(id), "small secondary") : null,
+        id && app ? btn(s ? "Refresh" : "Save to this device", () => download(id).catch(fail), s && newer && !changed ? "small" : "small secondary") : null,
+        s && id && changed && staff ? btn("Upload changes", () => uploadChanges(s), "small") : null,
+        s && !id && staff ? btn("Issue online", () => issueOnline(s), "small") : null,
+        app ? h("button", { type: "button", class: "btn small secondary", "data-icon": ICONS["Export to a file"], title: "The logbook as a file, with its pictures: the competitor can import it into PassTech or the Rollcage assessment tool",
+          onclick: () => (s ? app.exportLocal(s.sessionId) : exportCar({ id }).catch(fail)) }, ["Export to a file"]) : null,
+        id && staff && x.status !== "closed" ? emailOwnerButton(id, x.number, x.ownerEmail) : null,
+        // What scanning its QR sticker shows anyone (the owner's privacy choices applied).
+        id && x.publicToken && x.publicEnabled
+          ? h("a", { class: "btn small secondary", "data-icon": ICONS["Public view"], href: publicUrl(x.publicToken), target: "_blank", rel: "noopener", title: "What anyone scanning its QR sticker sees" }, ["Public view"])
+          : id && x.publicToken ? h("span", { class: "element-desc" }, ["Public link off"]) : null,
+        s ? btn("Delete", () => deleteLocalLogbook(s), "small secondary") : null,
+      ),
+      id ? recordHistory(id) : null,
+    ])]);
   }
   function renderFind() {
     const set = (k) => (v) => { findForm[k] = v; };
@@ -870,31 +952,12 @@
       actions(
         btn("Find", () => { findForm.mine = false; find(); }, "secondary"),
         btn("Logbooks I issued", () => { Object.keys(findForm).forEach((k) => { findForm[k] = ""; }); findForm.mine = true; find(); }, findForm.mine ? "" : "secondary"),
-        btn("🔳 Scan a QR sticker", () => Stickers.scanDialog(findBySticker), "secondary"),
+        btn("Scan a QR sticker", () => Stickers.scanDialog(findBySticker), "secondary"),
       ),
       findForm.mine && ui.found ? desc("The logbooks you issued, newest first.") : null,
       ui.found && !ui.found.length ? desc("No logbook found.") : null,
       ui.found && ui.found.length === 50 ? desc("Showing the 50 most recent -- add filters to narrow it down.") : null,
-      (ui.found || []).map((lb) => h("div", { class: "account-card account-card-thumb" }, [thumb(lb.photo), h("div", { class: "account-card-body" }, [
-        h("div", { class: "account-card-title" }, [carTitle(lb, lb.carName), " · ", lb.digitalNumber, lb.status !== "active" ? " · " + lb.status : ""]),
-        desc([lb.vin ? (lb.hasVin ? "VIN " : "Chassis ") + lb.vin : "No VIN", bodyName(lb.body) + (lb.bodyNumbers[lb.body] ? " logbook " + lb.bodyNumbers[lb.body] : ""),
-              "owner " + [lb.ownerName, lb.ownerEmail].filter(Boolean).join(", "),
-              "issued " + fmtDate(lb.issuedAt) + (lb.issuedBy && (lb.issuedBy.name || lb.issuedBy.email) ? " by " + (lb.issuedBy.name || lb.issuedBy.email) : "")].join(" · ")),
-        lb.records
-          ? h("ol", { class: "account-records" }, lb.records.map((r) => h("li", {}, [r.kind + " -- " + new Date(r.created_at).toLocaleString() + " by " + r.author_email, r.body && (r.body.note || r.body.notes) ? ": " + (r.body.note || r.body.notes) : ""])))
-          : null,
-        actions(
-          lb.records ? null : btn("Show records", () => showRecords(lb), "small secondary"),
-          app ? btn(localFor(lb.id) ? "Refresh on this device" : "Save to this device", () => download(lb.id).catch(fail), "small secondary") : null,
-          app && localFor(lb.id) ? btn("Open", () => app.openLocal(localFor(lb.id).sessionId), "small secondary") : null,
-          app ? btn("Export to a file", () => exportCar(lb).catch(fail), "small secondary") : null,
-          lb.status !== "closed" ? emailOwnerButton(lb.id, lb.digitalNumber, lb.ownerEmail) : null,
-          // What scanning its QR sticker shows anyone (the owner's privacy choices applied).
-          lb.publicToken && lb.publicEnabled
-            ? h("a", { class: "btn small secondary", href: publicUrl(lb.publicToken), target: "_blank", rel: "noopener", title: "What anyone scanning its QR sticker sees" }, ["Public view"])
-            : lb.publicToken ? h("span", { class: "element-desc" }, ["Public link off"]) : null,
-        ),
-      ])])),
+      (ui.found || []).map((lb) => logbookCard(foundInfo(lb), true)),
     ];
   }
 
