@@ -27,7 +27,7 @@ Who can do what depends on your email:
 
 ### The home screen
 
-Once signed in, the home screen shows one card per mode: **Create a new logbook**, **Logbook library**, and for technical directors **Sanctioning bodies, scrutineers and tech sheets**. The bar at the top shows who you're signed in as and your accreditations. **← Home** at the top of each mode brings you back here. Event scrutineering and event admin are on the Scrutineering site; the link under the cards opens it.
+Once signed in, the home screen shows one card per mode: **Create a new logbook**, **Logbook library**, and for technical directors **Sanctioning bodies, scrutineers and tech sheets**. The bar at the top shows who you're signed in as and your accreditations. At the top of each mode, a navigation trail shows where you are -- for example **Home › Logbook library ›** and the name of the logbook open below -- and each part of it but the last takes you back to that page (**Home** brings you back here). Event scrutineering and event admin are on the Scrutineering site; the link under the cards opens it.
 
 ![The home screen of a technical director.](L01-home.png)
 

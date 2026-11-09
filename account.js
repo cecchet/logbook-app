@@ -2344,8 +2344,7 @@
     ]);
     const filterBox = h("div", { class: "field-row" }, [field("Find a car", input({ value: entryFilter, "data-id": "entry-filter", placeholder: "car number, driver, car…" }, (v) => { entryFilter = v; render(); restoreFocus("entry-filter"); }))]);
     const out = [
-      actions(btn("← All events", () => leaveTechSheet(() => { ui.event = null; render(); }), "small secondary"),
-        kind === "scrutineer" && !ui.techSheet ? btn("🔳 Check a sticker", checkSticker, "small secondary") : null,
+      actions(kind === "scrutineer" && !ui.techSheet ? btn("🔳 Check a sticker", checkSticker, "small secondary") : null,
         kind === "scrutineer" && !ui.techSheet && !off.on ? btn("Print the event's stickers", printEventStickers, "small secondary") : null),
       h("h3", { class: "account-event-title" }, [ev.name + " -- " + bodyName(ev.body_id) + (ev.discipline ? " " + disciplineName(ev.body_id, ev.discipline) : "")]),
       desc([fmtDate(ev.starts_on) + (ev.ends_on !== ev.starts_on ? " to " + fmtDate(ev.ends_on) : ""), ev.location,
@@ -2723,7 +2722,6 @@
     const admin = ui.roles.admin;
     const people = ui.accreditations.filter((a) => a.body_id === b.id && (admin || !a.deleted_at));
     const out = [
-      actions(btn("← All sanctioning bodies", () => { ui.body = null; ui.templateEdit = null; render(); }, "small secondary")),
       h("h3", { class: "account-event-title" }, [b.name + " (" + bodyCode(b.id) + ")" + (accStatus(b) !== "active" ? " -- " + accStatus(b) : "")]),
       b.logbook_number_note ? desc("Logbook numbers: " + b.logbook_number_note) : null,
       admin ? actions(
@@ -3211,8 +3209,49 @@
       link ? h("p", { class: "account-other-site" }, [link[0] + " -- ", h("a", { href: otherSite() }, [link[1] + " →"])]) : null,
     ];
   }
+  // Where we are, at the top of each section: Home > the section > what's
+  // open in it (a body, its tab, the tech sheet being edited; an event, a
+  // car's tech sheet; a logbook). Every crumb but the last goes back there.
+  const MODE_CRUMBS = { create: "Create a logbook", library: "Logbook library", event: "Scrutineering", events: "Event admin", annual: "Annual safety stickers", bodies: "Sanctioning bodies" };
+  function crumbTrail(m) {
+    const items = [["Home", () => goMode("home")]];
+    // Back to the section's own list: nothing open in it.
+    const toList = {
+      bodies: () => { ui.body = null; ui.templateEdit = null; ui.show = {}; render(); },
+      event: () => leaveTechSheet(() => { ui.event = null; render(); }),
+      events: () => leaveTechSheet(() => { ui.event = null; render(); }),
+      library: () => goMode("library"),
+    }[m];
+    items.push([MODE_CRUMBS[m] || MODES[m].title, toList || null]);
+    if (m === "bodies" && ui.body) {
+      items.push([bodyCode(ui.body), () => { ui.templateEdit = null; ui.bodyTab = "scrutineers"; ui.show = {}; render(); }]);
+      if (isOrganizer(ui.body)) {
+        items.push([ui.bodyTab === "techsheets" ? "Tech sheets" : "Scrutineers", () => { ui.templateEdit = null; ui.show = {}; render(); }]);
+        const t = ui.bodyTab === "techsheets" && ui.templateEdit && ui.templateEdit.body === ui.body ? ui.templateEdit : null;
+        if (t) items.push([t.id ? t.def.title : "New tech sheet", null]);
+      }
+    }
+    if ((m === "event" || m === "events") && ui.event) {
+      items.push([ui.event.event.name, () => leaveTechSheet(() => render())]);
+      if (m === "events") items.push([ui.eventTab === "admin" ? "Admin" : "Competitor management", () => leaveTechSheet(() => render())]);
+      if (ui.techSheet && ui.techSheet.entry.event_id === ui.event.event.id) items.push(["Car #" + ui.techSheet.entry.car_number + " tech sheet", null]);
+    }
+    if ((m === "library" || m === "create") && app && app.workspaceShown()) items.push([localTitle(app.currentRollcage()), null]);
+    return items;
+  }
+  function crumbs(items) {
+    const out = [];
+    items.forEach(([label, go], i) => {
+      const last = i === items.length - 1;
+      if (i) out.push(h("span", { class: "account-crumb-sep", "aria-hidden": "true" }, ["›"]));
+      out.push(last || !go
+        ? h("span", { class: "account-crumb" + (last ? " current" : ""), "aria-current": last ? "page" : null }, [label])
+        : h("a", { href: "#", class: "account-crumb", onclick: (e) => { e.preventDefault(); go(); } }, [label]));
+    });
+    return h("nav", { class: "account-crumbs", "aria-label": "You are here" }, out);
+  }
   function modeHeader(m) {
-    return h("div", { class: "account-mode-header" }, [btn("← Home", () => goMode("home"), "small secondary"), h("h2", {}, [MODES[m].title])]);
+    return h("div", { class: "account-mode-header" }, [crumbs(crumbTrail(m))]);
   }
   // The logbook open below: its name and number, and saving it here.
   function openLogbookBar(extra) {

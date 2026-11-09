@@ -43,7 +43,7 @@ export default async function (a) {
   await a.shot("L14-ai", "#shot-ai");
 
   // ---- The library: find the club's logbook online, save it here ----
-  await a.eval(`window.confirm = () => true; ${click("/Home/", PANEL)} ${mode("/^2/")}`);
+  await a.eval(`window.confirm = () => true; document.querySelector('.account-crumbs a').click(); ${wait(700)} ${mode("/^2/")}`);
   await a.eval(`${click("/Find a logbook online/", PANEL)}
     const i = document.querySelector('${PANEL} .account-section-body .field input'); i.value = 'Subaru'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); ${wait(200)}
     ${click("/^Find$/", PANEL)} ${wait(1200)}`);

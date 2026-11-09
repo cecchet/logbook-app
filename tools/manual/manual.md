@@ -28,7 +28,7 @@ Once signed in, the home screen shows one card per mode you can use, numbered li
 | Event admin | technical directors | creating events, their staff, tech sheets and competitors |
 | Sanctioning bodies, scrutineers and tech sheets | technical directors, and scrutineers allowed to manage scrutineers | the body's disciplines, scrutineers, licenses, permissions and tech sheets |
 
-The bar at the top shows who you're signed in as and your accreditations (for example "Demo Rally Club technical director"). If your license has expired, a warning says so: ask your technical director to renew it. **← Home** at the top of each mode brings you back here, and **User manual** in the header opens this manual.
+The bar at the top shows who you're signed in as and your accreditations (for example "Demo Rally Club technical director"). If your license has expired, a warning says so: ask your technical director to renew it. At the top of each mode, a navigation trail shows where you are -- for example **Home › Sanctioning bodies › DRC › Tech sheets › Demo Rally Club Rally Tech Sheet** -- and each part of it but the last takes you back to that page (**Home** brings you back here). **User manual** in the header opens this manual.
 
 ![The home screen of a technical director.](01-home.png)
 
