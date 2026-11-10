@@ -703,5 +703,69 @@ await refused("...not by someone outside its body", () => rpc(STRANGER, "claim_n
 await refused("...nor by its owner", () => rpc("photo@car.test", "claim_notification", [photoBook.id, "reminder"]), /only a scrutineer of its sanctioning body/);
 await refused("nobody reads the notifications directly", () => as(S2, (q) => q("select * from notifications")), /permission denied/);
 
+// ---- Annual stickers: which gear, and annual car inspections -------------------------
+console.log("\nAnnual sticker gear and annual car stickers");
+const YEAR = new Date().getUTCFullYear();
+const GEAR_APP = (cat) => ({ body: "ara", season: YEAR, category: cat, gear: { category: cat, brand: "Bell" },
+  photos: [{ sha256: "a".repeat(64), kind: "item" }, { sha256: "b".repeat(64), kind: "tag" }] });
+await refused("a body that hasn't chosen takes no applications", () => rpc(COMPETITOR, "submit_sticker_application", [GEAR_APP("helmet")]), /doesn't give annual stickers/);
+await refused("a scrutineer can't choose the body's annual sticker gear", () => rpc(S1, "save_annual_sticker_gear", ["ara", null, ["helmet"]]), /technical directors/);
+await check("the technical director picks helmets only; PassTech sees it", async () => {
+  await rpc(TD, "save_annual_sticker_gear", ["ara", null, ["helmet", "helmet"]]);
+  const ara = (await rpc(null, "sticker_bodies")).find((b) => b.id === "ara");
+  assert(JSON.stringify(ara.gear) === '["helmet"]', "gear: " + JSON.stringify(ara.gear));
+});
+await refused("...an application for a seat is refused", () => rpc(COMPETITOR, "submit_sticker_application", [GEAR_APP("seat")]), /doesn't give annual stickers/);
+await check("...one for a helmet goes through", () => rpc(COMPETITOR, "submit_sticker_application", [GEAR_APP("helmet")]));
+await refused("only real gear", () => rpc(TD, "save_annual_sticker_gear", ["ara", null, ["roof"]]), /stickers go on/);
+
+let annualSheet;
+await refused("no annual car inspection sheet yet: nothing to submit", () => rpc(BUYER, "submit_annual_tech_sheet", [{ body: "ara", car: { vin: "JF1GD70625L512345" } }]), /doesn't give annual car stickers/);
+await refused("only one of the body's own sheets can be its annual one", async () => {
+  const builtIn = (await db.query("select id from tech_sheet_templates where body_id is null limit 1")).rows[0].id;
+  await rpc(TD, "save_annual_car_template", ["ara", null, builtIn]);
+}, /body's own tech sheets/);
+await check("the technical director picks the body's annual car inspection sheet", async () => {
+  await rpc(TD, "save_annual_car_template", ["ara", null, araCopy]);
+  const ara = (await rpc(null, "sticker_bodies")).find((b) => b.id === "ara");
+  assert(ara.carTemplate && ara.carTemplate.id === araCopy, "carTemplate: " + JSON.stringify(ara.carTemplate));
+});
+await check("the car's owner pre-fills the annual inspection from PassTech (found by its VIN: its logbook)", async () => {
+  annualSheet = await rpc(BUYER, "submit_annual_tech_sheet", [{ body: "ara", season: YEAR, car: { vin: " jf1gd70625l512345 ", make: "Subaru", model: "Impreza", year: "2004", owner: "Bo Buyer" },
+    header: { car_number: "12" }, competitor: { items: { "helmet.driver": { declared: true } } } }]);
+  const mine = await rpc(BUYER, "my_annual_tech_sheets");
+  assert(mine.length === 1 && mine[0].logbook === issued.id && mine[0].car.vin === "JF1GD70625L512345" && mine[0].status === "submitted", JSON.stringify(mine[0]));
+});
+await refused("...not twice for the same car and season", () => rpc(BUYER, "submit_annual_tech_sheet", [{ body: "ara", season: YEAR, car: { vin: "JF1GD70625L512345" } }]), /already has an annual inspection waiting/);
+await check("...but they can update it", () => rpc(BUYER, "submit_annual_tech_sheet", [{ id: annualSheet, body: "ara", car: { vin: "JF1GD70625L512345", owner: "Bo Buyer" }, competitor: { items: {} } }]));
+await refused("a stranger can't update it", () => rpc(STRANGER, "submit_annual_tech_sheet", [{ id: annualSheet, body: "ara", car: { vin: "X1234" } }]), /no such annual inspection of yours/);
+await check("the body's scrutineers see the season's annual inspections", async () => {
+  const list = await rpc(S2, "annual_tech_sheets", ["ara", null, YEAR]);
+  assert(list.some((x) => x.id === annualSheet && x.logbookNumber === issued.digitalNumber), JSON.stringify(list.map((x) => x.id)));
+});
+await refused("a stranger doesn't", () => rpc(STRANGER, "annual_tech_sheets", ["ara", null, YEAR]), /only the body's scrutineers/);
+await refused("no annual car sticker before it passes", () => rpc(S2, "issue_annual_car_sticker", [annualSheet]), /must pass/);
+let annualSticker;
+await check("a scrutineer passes it and issues the car's annual sticker", async () => {
+  const s = await rpc(S2, "save_annual_tech_sheet", [{ id: annualSheet, inspection: { items: { "helmet.driver": { result: "pass" } } }, finish: "pass" }]);
+  assert(s.status === "passed" && s.inspection.signatures.scrutineer, JSON.stringify(s));
+  annualSticker = await rpc(S2, "issue_annual_car_sticker", [annualSheet]);
+  assert(annualSticker.kind === "car" && annualSticker.season === YEAR && !annualSticker.event, JSON.stringify(annualSticker));
+});
+await check("scanned: a valid annual car sticker, with its inspection", async () => {
+  const v = await rpc(null, "sticker_view", [annualSticker.code]);
+  assert(v.status === "valid" && v.sheet.annual === true && v.sheet.results["helmet.driver"] === "pass" && !v.snapshot.driver, JSON.stringify(v));
+});
+await refused("a signed annual inspection can't change", () => rpc(S2, "save_annual_tech_sheet", [{ id: annualSheet, inspection: {} }]), /signed/);
+await check("a scrutineer starts an annual inspection for a car without a logbook", async () => {
+  const s = await rpc(S2, "save_annual_tech_sheet", [{ body: "ara", season: YEAR, car: { vin: "wbanv1234", make: "BMW" }, inspection: { items: {} } }]);
+  assert(s.status === "inspecting" && !s.logbook && s.car.vin === "WBANV1234", JSON.stringify(s));
+});
+await check("at the body's event that season, the staff see car 12's annual sticker", async () => {
+  const map = await rpc(S2, "event_annual_car_stickers", [event]);
+  assert(map["12"] && map["12"].code === annualSticker.code, JSON.stringify(map));
+});
+await refused("...a stranger doesn't", () => rpc(STRANGER, "event_annual_car_stickers", [event]), /not on this event's staff/);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

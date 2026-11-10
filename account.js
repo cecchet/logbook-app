@@ -995,6 +995,10 @@
       bundle = copy.bundle;
     } else if (off.copies[id] && Date.now() - Date.parse(off.copies[id].savedAt) > 2 * 60 * 1000) downloadEvent(id, true);
     showEvent(bundle);
+    // The cars with a valid annual car sticker for this event's body, discipline and season.
+    if (!off.on && ui.event) {
+      rpc("event_annual_car_stickers", { p_event: id }).then((map) => { if (ui.event && ui.event.event.id === id) { ui.event.annualCars = map || {}; render(); } }, () => {});
+    }
     if (!quiet) render();
   }
   async function saveEvent() {
@@ -1311,6 +1315,10 @@
         (x.signatures && x.signatures.scrutineer ? " (" + x.signatures.scrutineer.name + ")" : "") + (x.corrections ? " -- corrections: " + x.corrections : "") +
         ". The team re-submitted " + fmtDate(x.resubmittedAt) + ": the lines they changed are marked \"updated by the team\" and need checking again."])),
       t.localSaved ? h("p", { class: "verdict warn" }, ["Saved on this device (offline): it syncs once back online."]) : null,
+      // Its annual car sticker: the annual inspection passed -- its lines may not need checking again.
+      (() => { const ann = (ui.event.annualCars || {})[t.entry.car_number];
+        return ann ? h("p", { class: "library-notice" }, ["This car has a valid annual car sticker (" + Stickers.fmtCode(ann.code) + ", " + ann.season + ", issued " + fmtDate(ann.issuedAt) + "): its annual inspection passed. ",
+          h("a", { class: "btn small secondary", href: location.pathname + "?s=" + encodeURIComponent(ann.code), target: "_blank", rel: "noopener" }, ["View it"]), " This event's sheet still needs its own sign-off."]) : null; })(),
       !myRole ? desc("Only the event's staff fill its sheets.") : over ? desc("This event is over: the sheet is read-only.") : finished ? desc("This sheet is signed: it's read-only.")
         : !open ? h("p", { class: c.todo === 0 && c.total ? "library-notice" : "element-desc" }, [(c.todo === 0 && c.total ? "Every line has a result. " : "") +
           "Scrutineering opens " + fmtDate(ev.scrutineering_starts_on) + ": " + (c.todo === 0 && c.total ? "save the sheet now, and finish it as Passed or Failed from then." : "fill the sheet in and save it now -- Passed / Failed can be recorded from then.")]) : null,
@@ -2325,6 +2333,7 @@
         h("strong", {}, [[x.entry.driver, x.entry.codriver].filter(Boolean).join(" / ") || "—"]),
         h("span", { class: "element-desc" }, [" " + carDesc(x) + (x.entry.class ? " · " + x.entry.class : "") + (kind === "organize" && x.entry.email ? " · " + x.entry.email : "")]),
         teamSheet(x) ? h("span", { class: "badge info", title: "The team pre-filled its tech sheet" }, ["team sheet"]) : null,
+        (b.annualCars || {})[x.entry.car_number] ? h("span", { class: "badge pass", title: "A valid annual car sticker for this season: its annual inspection passed" }, ["annual sticker"]) : null,
         (() => { const s = (b.techSheets || []).find((y) => y.carNumber === x.entry.car_number);
           return s && s.lockedBy && s.lockedBy !== ui.roles.email ? h("span", { class: "badge cond", title: "Its sheet is open on " + s.lockedBy + "'s device" }, ["open: " + s.lockedBy]) : null; })(),
         // Changed on this device, not synced yet -- or in conflict with the server's.
@@ -2603,6 +2612,53 @@
       loadAll();
     } catch (err) { fail(err); }
   }
+  // ---- Annual stickers: which gear the body gives them for, per discipline
+  // (supabase/migrations/20261109000000_annual_sticker_gear.sql). Competitors
+  // can only apply from PassTech for what's ticked here.
+  const ANNUAL_GEAR = [["helmet", "Helmets"], ["hnr", "HANS / head & neck restraints"], ["seat", "Seats"], ["fire_extinguisher", "Fire extinguishers"], ["fire_suppression", "Fire suppression systems"]];
+  function renderBodyAnnualGear(b) {
+    const discs = (ui.disciplines || []).filter((d) => d.body_id === b.id && !d.archived_at);
+    // A body with disciplines: one row each; without: the body itself.
+    const rows = discs.length ? discs.map((d) => ({ key: d.id, name: d.name, obj: d })) : [{ key: null, name: b.name, obj: b }];
+    const canEdit = (key) => ui.roles.admin || myAccs(b.id).some((a) => a.role === "technical_director" && (!a.discipline || a.discipline === key));
+    const save = async (row, gear) => {
+      try {
+        await rpc("save_annual_sticker_gear", { p_body: b.id, p_discipline: row.key, p_gear: gear });
+        row.obj.annual_sticker_gear = gear;
+        render();
+      } catch (e) { say("error", e.message || String(e)); }
+    };
+    const saveCar = async (row, tpl) => {
+      try {
+        await rpc("save_annual_car_template", { p_body: b.id, p_discipline: row.key, p_template: tpl || null });
+        row.obj.annual_car_template = tpl || null;
+        render();
+      } catch (e) { say("error", e.message || String(e)); }
+    };
+    const own = bodyTemplates(b.id);
+    return h("div", { class: "account-section-body" }, [
+      h("div", { class: "account-card-title" }, ["Annual tech stickers"]),
+      desc("The gear competitors can apply for an annual (season) sticker for from PassTech" + (discs.length ? ", per discipline" : "") + ". Nothing ticked: no annual stickers" + (discs.length ? " in that discipline" : "") + ", and PassTech doesn't offer " + bodyCode(b.id) + (discs.length ? " for it" : "") + ". "
+        + "An annual car sticker comes from an annual inspection on the tech sheet picked below: competitors can pre-fill it from PassTech, and the scrutineers inspect and sign it in Annual safety stickers."),
+      rows.map((row) => {
+        const gear = row.obj.annual_sticker_gear || [];
+        const editable = canEdit(row.key);
+        return h("div", { class: "account-card annual-gear-row" }, [
+          h("div", { class: "account-card-title" }, [row.name, h("span", { class: "badge " + (gear.length ? "pass" : "info") }, [gear.length ? gear.length + " of " + ANNUAL_GEAR.length : "none"])]),
+          h("div", { class: "annual-gear-choices" }, ANNUAL_GEAR.map(([id, label]) => h("label", {}, [
+            h("input", { type: "checkbox", checked: gear.includes(id), disabled: !editable,
+              onchange: (e) => save(row, e.target.checked ? gear.concat([id]) : gear.filter((g) => g !== id)) }), " " + label,
+          ]))),
+          // Annual car stickers: from an annual inspection on one of the body's tech sheets.
+          h("div", { class: "field-row" }, [field("Annual car inspection (car stickers)", editable
+            ? select([["", "None: no annual car stickers"]].concat(own.map((t) => [t.id, t.title])), row.obj.annual_car_template || "", (v) => saveCar(row, v))
+            : input({ value: (own.find((t) => t.id === row.obj.annual_car_template) || {}).title || "None", disabled: true }, () => {}))]),
+          !own.length && editable ? desc("Make a tech sheet for the annual inspection first (Tech sheets tab) -- the cage, seats, belts, fire suppression... with the photos it needs.") : null,
+          editable ? null : desc("Only the body's technical directors" + (row.key ? " (or this discipline's)" : "") + " change this."),
+        ]);
+      }),
+    ]);
+  }
   function renderBodyTechSheets(b) {
     const own = bodyTemplates(b.id);
     const lib = libraryFor(b.id).filter((t) => !own.some((o) => o.key === t.key));
@@ -2735,10 +2791,15 @@
         actions(btn("Save body", saveBody), btn("Cancel", () => toggle("editBody", false), "secondary")),
       ]) : null,
       // Tech sheets: the body's organizers (technical directors, System admins).
-      isOrganizer(b.id) ? tabs([["scrutineers", "Scrutineers (" + people.filter((a) => !a.deleted_at).length + ")"], ["techsheets", "Tech sheets (" + bodyTemplates(b.id).length + ")"]], ui.bodyTab, (t) => { ui.bodyTab = t; render(); }) : null,
+      isOrganizer(b.id) ? tabs([["scrutineers", "Scrutineers (" + people.filter((a) => !a.deleted_at).length + ")"], ["techsheets", "Tech sheets (" + bodyTemplates(b.id).length + ")"],
+        ["annual", "Annual stickers"]], ui.bodyTab, (t) => { ui.bodyTab = t; render(); }) : null,
     ];
     if (ui.bodyTab === "techsheets" && isOrganizer(b.id)) {
       out.push(renderBodyTechSheets(b));
+      return out;
+    }
+    if (ui.bodyTab === "annual" && isOrganizer(b.id)) {
+      out.push(renderBodyAnnualGear(b));
       return out;
     }
     // Disciplines: System admins and the body's all-disciplines technical directors manage them.
@@ -2966,6 +3027,108 @@
     }
     return ui.annual;
   }
+  // ---- Annual car inspections (supabase/migrations/20261109000100_annual_car_stickers.sql) ----
+  // The annual inspection sheet of the body (discipline) picked: { id, title, definition }, or null.
+  function annualCarTemplate(a) {
+    if (!a || !a.body || a.discipline === NO_DISCIPLINE) return null;
+    const disc = annualDisc(a);
+    const row = disc ? (ui.disciplines || []).find((d) => d.body_id === a.body && d.id === disc) : ui.bodies.find((b) => b.id === a.body);
+    const id = row && row.annual_car_template;
+    return id ? (ui.techTemplates || []).find((t) => t.id === id) || null : null;
+  }
+  const carLabel = (c) => [c.year, c.make, c.model].filter(Boolean).join(" ") || "Car";
+  function openAnnualCar(a, tpl, x) {
+    // x: an annual inspection from the list, or none (a new one).
+    const template = x ? x.template : tpl.definition;
+    a.carSheet = {
+      id: x ? x.id : null, template, variant: x ? x.variant : TechSheet.variantForClass(template, ""),
+      header: Object.assign({}, x ? x.header : {}), competitor: x ? x.competitor : null,
+      inspection: JSON.parse(JSON.stringify((x && x.inspection) || { items: {} })),
+      car: Object.assign({ vin: "", make: "", model: "", year: "", owner: "" }, x ? x.car : {}),
+      logbookNumber: x ? x.logbookNumber || "" : "", status: x ? x.status : "new", sticker: x ? x.sticker : null,
+      submittedBy: x ? x.submittedBy : null, view: {},
+    };
+    render();
+  }
+  async function saveAnnualCar(a, finish) {
+    const t = a.carSheet;
+    if (finish) {
+      const c = TechSheet.counts(t.template, t.variant, t.inspection);
+      if (finish === "pass" && c.fail) return say("fail", c.fail + " line" + (c.fail === 1 ? " is" : "s are") + " marked Fail -- fix " + (c.fail === 1 ? "it" : "them") + ", or finish as Failed.");
+      if (finish === "fail" && !c.fail && !(t.inspection.corrections || "").trim()) return say("fail", "Mark the lines that fail, or write the corrections required.");
+      if (finish === "pass" && c.todo && !confirm(c.todo + " line" + (c.todo === 1 ? " isn't" : "s aren't") + " checked yet. Pass this car anyway?")) return;
+      if (!confirm((finish === "pass" ? "Pass" : "Fail") + " the annual inspection and sign it as " + ui.roles.email + "?")) return;
+    }
+    try {
+      const s = await rpc("save_annual_tech_sheet", { p: {
+        id: t.id || undefined, body: a.body, discipline: annualDisc(a) || null, season: a.season, header: t.header, variant: t.variant,
+        car: t.car, logbookNumber: t.logbookNumber || undefined,
+        inspection: { items: t.inspection.items, corrections: t.inspection.corrections || "", pictures: t.inspection.pictures || {} },
+        finish: finish || undefined } });
+      Object.assign(t, { id: s.id, status: s.status, sticker: s.sticker, logbookNumber: s.logbookNumber || t.logbookNumber, car: Object.assign(t.car, s.car || {}) });
+      say("pass", finish ? "Annual inspection " + (finish === "pass" ? "passed -- issue the car's sticker below." : "failed.") : "Annual inspection saved.");
+      loadAnnual();
+    } catch (e) { fail(e); }
+  }
+  async function issueAnnualCar(a) {
+    const t = a.carSheet;
+    try {
+      t.sticker = await rpc("issue_annual_car_sticker", { p_sheet: t.id });
+      say("pass", "Annual car sticker " + Stickers.fmtCode(t.sticker.code) + " issued.");
+      Stickers.printDialog([t.sticker]);
+      loadAnnual();
+    } catch (e) { fail(e); }
+  }
+  function renderAnnualCars(a, tpl) {
+    const t = a.carSheet;
+    if (t) {
+      const disc = annualDisc(a) || null;
+      const finished = t.status === "passed" || t.status === "failed";
+      const editable = !finished;
+      const canSign = canIn(a.body, disc, "sign_off_tech_sheets");
+      const c = TechSheet.counts(t.template, t.variant, t.inspection);
+      const carField = (key, label, attrs) => field(label, input(Object.assign({ value: t.car[key] || "", disabled: !editable || (!!t.id && key === "vin") }, attrs || {}), (v) => { t.car[key] = v; }));
+      const buttons = () => [
+        editable ? btn("Save", () => saveAnnualCar(a), "small secondary") : null,
+        editable && canSign && t.id ? btn("Finish: Passed", () => saveAnnualCar(a, "pass"), "small") : null,
+        editable && canSign && t.id ? btn("Finish: Failed", () => saveAnnualCar(a, "fail"), "small secondary") : null,
+        btn("Close", () => { a.carSheet = null; render(); }, "small secondary"),
+      ];
+      return [h("div", { class: "account-card", id: "techsheet-panel" }, [
+        h("div", { class: "account-card-title" }, [(t.id ? carLabel(t.car) : "New annual inspection") + " -- " + t.template.title,
+          finished ? h("span", { class: "badge " + (t.status === "passed" ? "pass" : "req") }, [t.status]) : null]),
+        actions(...buttons()),
+        desc([annualLabel(a), c.pass + " pass", c.fail + " fail", c.todo + " to check", t.submittedBy ? "pre-filled in PassTech by " + t.submittedBy : "filled in here"].filter(Boolean).join(" · ")),
+        h("div", { class: "field-row" }, [carField("vin", "VIN"), field("Logbook number", input({ value: t.logbookNumber || "", placeholder: "if it has one", disabled: !editable }, (v) => { t.logbookNumber = v; }))]),
+        h("div", { class: "field-row" }, [carField("year", "Year"), carField("make", "Make"), carField("model", "Model"), carField("owner", "Owner")]),
+        !t.id ? desc("Save first (the VIN, or its logbook number, at least) -- then fill in the sheet and sign it off.") : null,
+        TechSheet.sheet({ template: t.template, variant: t.variant, header: t.header, competitor: t.competitor, inspection: t.inspection,
+          editable, view: t.view, photoUrl: techPhotoUrl, addPhoto: addTechPhoto, lookupSticker, setVariant: (v) => { t.variant = v; }, onChange: render,
+          stickerScope: { body: a.body, discipline: disc, bodyName: bodyName(a.body), disciplineName: disc ? disciplineName(a.body, disc) : null } }),
+        editable && !canSign ? desc("Fill it in and save -- a scrutineer allowed to sign off records Passed / Failed.") : null,
+        actions(...buttons()),
+        t.status === "passed" ? h("div", { class: "account-card" }, [
+          h("div", { class: "account-card-title" }, ["Annual car sticker"]),
+          t.sticker ? desc("Sticker " + Stickers.fmtCode(t.sticker.code) + " -- good for " + annualLabel(a) + " events. Its QR code shows this inspection.") : desc("Passed: issue the car's annual sticker, good for " + annualLabel(a) + " events."),
+          actions(t.sticker ? btn("Print", () => Stickers.printDialog([t.sticker]), "small secondary") : null,
+            btn(t.sticker ? "Issue a new sticker (voids this one)" : "Issue the annual car sticker", () => issueAnnualCar(a), t.sticker ? "small secondary" : "small")),
+        ]) : null,
+      ])];
+    }
+    const list = a.cars || [];
+    const waiting = list.filter((x) => x.status === "submitted").length;
+    return [h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title" }, ["Annual car inspections -- " + tpl.title]),
+      desc("A car passing its annual inspection gets an annual car sticker, good for " + annualLabel(a) + " events. Competitors can pre-fill the inspection in PassTech" + (waiting ? " -- " + waiting + " waiting." : ".")),
+      actions(btn("Start an annual inspection", () => openAnnualCar(a, tpl, null), "small")),
+      list.length ? list.map((x) => h("div", { class: "account-entry" }, [
+        h("span", { class: "account-entry-main" }, [h("strong", {}, [carLabel(x.car || {})]),
+          h("span", { class: "element-desc" }, [" · " + [(x.car || {}).vin, x.logbookNumber, (x.car || {}).owner, x.submittedBy ? "from PassTech" : "", x.sticker ? "sticker " + Stickers.fmtCode(x.sticker.code) : ""].filter(Boolean).join(" · ")])]),
+        h("span", { class: "badge " + (x.status === "passed" ? "pass" : x.status === "failed" ? "req" : "info") }, [x.status === "submitted" ? "to inspect" : x.status]),
+        btn("Open", () => openAnnualCar(a, tpl, x), "small secondary"),
+      ])) : desc("No annual inspections for " + a.season + " yet."),
+    ])];
+  }
   async function loadAnnual() {
     const a = ui.annual;
     if (!a || !annualReady(a)) return;
@@ -2974,6 +3137,8 @@
       a.applications = (await rpc("list_sticker_applications", { p_body: a.body, p_status: "pending" }))
         .filter((x) => (x.discipline || "") === annualDisc(a));
       a.stickers = await rpc("list_stickers", { p: Object.assign({ body: a.body, discipline: annualDisc(a) }, a.allSeasons ? {} : { season: a.season }) });
+      // Annual car inspections, when the body (discipline) has an annual inspection sheet.
+      a.cars = annualCarTemplate(a) ? await rpc("annual_tech_sheets", { p_body: a.body, p_discipline: annualDisc(a) || null, p_season: a.season }) : null;
       // Who submitted the application for each sticker issued from an application (PassTech), to search by.
       a.submitters = {};
       (await rpc("list_sticker_applications", { p_body: a.body, p_status: "issued" })).forEach((x) => { if (x.stickerCode) a.submitters[x.stickerCode] = x.submittedBy; });
@@ -3060,10 +3225,10 @@
     const bodies = annualBodies();
     const discs = a.body ? annualDisciplines(a.body) : null;
     const out = [h("div", { class: "field-row" }, [
-      field("Sanctioning body", select([["", "— pick —"]].concat(bodies.map((b) => [b.id, b.name])), a.body, (v) => { annualPickBody(a, v); a.item = null; a.applications = a.stickers = null; loadAnnual(); render(); })),
+      field("Sanctioning body", select([["", "— pick —"]].concat(bodies.map((b) => [b.id, b.name])), a.body, (v) => { annualPickBody(a, v); a.item = null; a.carSheet = null; a.applications = a.stickers = null; loadAnnual(); render(); })),
       // (Body-wide staff also see the stickers from before the body had disciplines.)
       discs ? field("Discipline", select([["", "— pick —"]].concat(discs.map((d) => [d.id, d.name]),
-        canIn(a.body, null, "issue_annual_stickers") ? [[NO_DISCIPLINE, "No discipline (older stickers)"]] : []), a.discipline, (v) => { a.discipline = v; a.item = null; a.applications = a.stickers = null; loadAnnual(); render(); })) : null,
+        canIn(a.body, null, "issue_annual_stickers") ? [[NO_DISCIPLINE, "No discipline (older stickers)"]] : []), a.discipline, (v) => { a.discipline = v; a.item = null; a.carSheet = null; a.applications = a.stickers = null; loadAnnual(); render(); })) : null,
       field("Season", input({ type: "number", value: String(a.season), min: "2020", max: "2100" }, (v) => { const y = parseInt(v, 10); if (y > 2000) { a.season = y; a.stickers = null; loadAnnual(); } })),
     ])];
     if (!a.body) return out.concat(desc("Pick the body you're issuing stickers for."));
@@ -3072,7 +3237,11 @@
     // No discipline: only what's already there -- new stickers are a discipline's.
     const older = a.discipline === NO_DISCIPLINE;
     if (older && a.tab === "issue") a.tab = "issued";
-    out.push(tabs([].concat(older ? [] : [["issue", "Issue a sticker"]], [["applications", "Applications (" + apps.length + ")"], ["issued", (a.allSeasons ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]]), a.tab, (t) => { a.tab = t; render(); }));
+    const carTpl = older ? null : annualCarTemplate(a);
+    if (a.tab === "cars" && !carTpl) a.tab = "issue";
+    out.push(tabs([].concat(older ? [] : [["issue", "Issue a sticker"]], [["applications", "Applications (" + apps.length + ")"], ["issued", (a.allSeasons ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]],
+      carTpl ? [["cars", "Cars (" + (a.cars || []).length + ")"]] : []), a.tab, (t) => { a.tab = t; render(); }));
+    if (a.tab === "cars") return out.concat(renderAnnualCars(a, carTpl));
     if (a.tab === "applications") {
       out.push(h("div", { class: "account-card" }, [
         h("div", { class: "account-card-title" }, ["Applications from PassTech"]),
@@ -3221,12 +3390,13 @@
       event: () => leaveTechSheet(() => { ui.event = null; render(); }),
       events: () => leaveTechSheet(() => { ui.event = null; render(); }),
       library: () => goMode("library"),
+      annual: () => { if (ui.annual) { ui.annual.carSheet = null; ui.annual.item = null; } render(); },
     }[m];
     items.push([MODE_CRUMBS[m] || MODES[m].title, toList || null]);
     if (m === "bodies" && ui.body) {
       items.push([bodyCode(ui.body), () => { ui.templateEdit = null; ui.bodyTab = "scrutineers"; ui.show = {}; render(); }]);
       if (isOrganizer(ui.body)) {
-        items.push([ui.bodyTab === "techsheets" ? "Tech sheets" : "Scrutineers", () => { ui.templateEdit = null; ui.show = {}; render(); }]);
+        items.push([ui.bodyTab === "techsheets" ? "Tech sheets" : ui.bodyTab === "annual" ? "Annual stickers" : "Scrutineers", () => { ui.templateEdit = null; ui.show = {}; render(); }]);
         const t = ui.bodyTab === "techsheets" && ui.templateEdit && ui.templateEdit.body === ui.body ? ui.templateEdit : null;
         if (t) items.push([t.id ? t.def.title : "New tech sheet", null]);
       }
@@ -3237,6 +3407,10 @@
       if (ui.techSheet && ui.techSheet.entry.event_id === ui.event.event.id) items.push(["Car #" + ui.techSheet.entry.car_number + " tech sheet", null]);
     }
     if ((m === "library" || m === "create") && app && app.workspaceShown()) items.push([localTitle(app.currentRollcage()), null]);
+    if (m === "annual" && ui.annual && ui.annual.tab === "cars") {
+      items.push(["Cars", () => { ui.annual.carSheet = null; render(); }]);
+      if (ui.annual.carSheet) items.push([ui.annual.carSheet.id ? carLabel(ui.annual.carSheet.car) : "New annual inspection", null]);
+    }
     return items;
   }
   function crumbs(items) {

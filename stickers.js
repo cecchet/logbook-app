@@ -62,6 +62,8 @@
   function title(st) {
     const snap = st.snapshot || {};
     if (st.kind === "gear") return (GEAR_SHORT[snap.category] || "GEAR") + (snap.occupant === "codriver" ? " · CO-DRIVER" : snap.occupant === "driver" ? " · DRIVER" : "");
+    // An annual car sticker (no event): its annual inspection passed.
+    if (st.kind === "car" && snap.annual) return "ANNUAL TECH · " + ([snap.year, snap.make, snap.model].filter(Boolean).join(" ").toUpperCase() || "CAR");
     if (st.kind === "car") return "TECH PASSED · #" + (snap.carNumber || "");
     return "LOGBOOK · " + (snap.digitalNumber || "");
   }
@@ -69,7 +71,7 @@
   // "ARA · 2026"), else the day it was issued.
   function footer(st) {
     return [(st.body || "").toUpperCase(), st.disciplineShort || (st.discipline ? String(st.discipline).toUpperCase() : ""),
-      st.kind === "gear" && st.season ? String(st.season) : day(st.issuedAt)].filter(Boolean).join(" · ");
+      (st.kind === "gear" || (st.kind === "car" && (st.snapshot || {}).annual)) && st.season ? String(st.season) : day(st.issuedAt)].filter(Boolean).join(" · ");
   }
 
   // The sticker, 100 x 100 units: the QR code, then what it's for, its code, the body and date.
@@ -248,8 +250,11 @@
       if (g.helmetType || g.seatMounting) out.push(h("p", { class: "element-desc" }, [[g.helmetType === "full_face" ? "Full face" : g.helmetType === "open_face" ? "Open face" : "", g.seatMounting === "rails" ? "On rails" : g.seatMounting === "fixed" ? "Fixed mount" : ""].filter(Boolean).join(" · ")]));
       out.push(h("p", { class: "element-desc" }, ["Check the photos and the serial number against the item in hand. Whether this certification is accepted depends on the event's rules: PassTech's scrutineer mode checks it when it scans this sticker."]));
     } else if (data.kind === "car") {
-      out.push(h("h3", {}, ["Car #" + (snap.carNumber || "") + " passed tech" + (snap.class ? " -- class " + snap.class : "")]));
-      out.push(h("p", { class: "element-desc" }, [[[snap.year, snap.make, snap.model].filter(Boolean).join(" "), snap.driver ? [snap.driver, snap.codriver].filter(Boolean).join(" / ") : null].filter(Boolean).join(" · ")]));
+      out.push(h("h3", {}, [snap.annual ? [snap.year, snap.make, snap.model].filter(Boolean).join(" ") + " passed its " + (data.season || "") + " annual inspection"
+        : "Car #" + (snap.carNumber || "") + " passed tech" + (snap.class ? " -- class " + snap.class : "")]));
+      out.push(h("p", { class: "element-desc" }, [(snap.annual
+        ? [snap.vin ? "VIN " + snap.vin : null, snap.logbookNumber ? "logbook " + snap.logbookNumber : null, snap.driver || null, "good for " + [data.bodyName, data.disciplineName, data.season].filter(Boolean).join(" ") + " events"]
+        : [[snap.year, snap.make, snap.model].filter(Boolean).join(" "), snap.driver ? [snap.driver, snap.codriver].filter(Boolean).join(" / ") : null]).filter(Boolean).join(" · ")]));
       if ((snap.photos || []).length) out.push(photos(snap.photos));
       const sh = data.sheet || {};
       const sigs = sh.signatures || {};

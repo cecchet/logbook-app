@@ -17,8 +17,9 @@
     { id: "gmr", name: "Green Mountain Rally Series", logbook_number_note: null, disabled_at: null, deleted_at: null },
   ];
   const disciplines = [
-    { body_id: "drc", id: "rally", name: "Rally", short: "RALLY", position: 1, archived_at: null },
-    { body_id: "drc", id: "autox", name: "Autocross", short: "AUTOX", position: 2, archived_at: null },
+    // Annual stickers: every kind of gear in Rally, helmets only in Autocross.
+    { body_id: "drc", id: "rally", name: "Rally", short: "RALLY", position: 1, archived_at: null, annual_sticker_gear: ["helmet", "hnr", "seat", "fire_extinguisher", "fire_suppression"], annual_car_template: "tpl-historic" },
+    { body_id: "drc", id: "autox", name: "Autocross", short: "AUTOX", position: 2, archived_at: null, annual_sticker_gear: ["helmet"] },
   ];
   const acc = (id, name, email, role, discipline, license, expires, code, permissions, extra) => Object.assign({ id, body_id: "drc", name, email, role, discipline,
     license_number: license, license_expires: expires, scrutineer_code: code, permissions, disabled_at: null, deleted_at: null }, extra);
@@ -257,8 +258,43 @@
     snapshot: { digitalNumber: LB_NUMBER } });
 
   // ---- The RPCs ----
+  // A competitor's annual car inspection, pre-filled in PassTech, waiting for the scrutineers.
+  const annualCars = [{ id: "ann-1", body: "drc", discipline: "rally", season: new Date().getFullYear(), templateId: "tpl-historic", template: null, variant: null,
+    header: {}, car: { vin: "JF1GD70625L512345", make: "Subaru", model: "Impreza WRX", year: "2006", owner: "Jordan Lee" }, logbookNumber: null,
+    competitor: { items: {}, submittedAt: at(-2), by: "jordan.lee@example.com" }, submittedBy: "jordan.lee@example.com", inspection: { items: {} }, status: "submitted", sticker: null }];
   const RPC = {
     my_roles: () => roles,
+    // Annual car inspections (Rally: on the historic sheet).
+    save_annual_car_template: (a) => {
+      const row = a.p_discipline ? disciplines.find((d) => d.body_id === a.p_body && d.id === a.p_discipline) : bodies.find((b) => b.id === a.p_body);
+      if (row) row.annual_car_template = a.p_template;
+      return null;
+    },
+    annual_tech_sheets: (a) => annualCars.map((x) => (x.template ? x : Object.assign(x, { template: templates().find((t) => t.id === x.templateId).definition }))).filter((x) => x.season === a.p_season && (x.discipline || null) === (a.p_discipline || null)),
+    save_annual_tech_sheet: (a) => {
+      const p = a.p;
+      let x = p.id && annualCars.find((c) => c.id === p.id);
+      if (!x) {
+        const t = templates().find((t) => t.id === "tpl-historic");
+        x = { id: "ann-" + (annualCars.length + 1), body: "drc", discipline: p.discipline || null, season: p.season, template: t.definition, templateId: t.id, competitor: null, status: "inspecting", sticker: null };
+        annualCars.unshift(x);
+      }
+      Object.assign(x, { header: p.header || x.header || {}, variant: p.variant || x.variant, car: Object.assign({}, x.car, p.car), logbookNumber: p.logbookNumber || x.logbookNumber,
+        inspection: Object.assign({}, p.inspection, { result: p.finish || undefined }), status: p.finish === "pass" ? "passed" : p.finish === "fail" ? "failed" : "inspecting", updatedAt: new Date().toISOString() });
+      return x;
+    },
+    issue_annual_car_sticker: (a) => {
+      const x = annualCars.find((c) => c.id === a.p_sheet);
+      x.sticker = { code: "AN7C4R2K", kind: "car", body: "drc", discipline: x.discipline, disciplineShort: (x.discipline || "").toUpperCase(), season: x.season, issuedAt: new Date().toISOString(),
+        snapshot: { annual: true, make: x.car.make, model: x.car.model, year: x.car.year, vin: x.car.vin, logbookNumber: x.logbookNumber } };
+      return x.sticker;
+    },
+    event_annual_car_stickers: () => ({ "23": { code: "AN7C4R2K", season: new Date().getFullYear(), issuedAt: at(-20), make: "Subaru", model: "Impreza WRX", year: "2006" } }),
+    save_annual_sticker_gear: (a) => {
+      const row = a.p_discipline ? disciplines.find((d) => d.body_id === a.p_body && d.id === a.p_discipline) : bodies.find((b) => b.id === a.p_body);
+      if (row) row.annual_sticker_gear = a.p_gear;
+      return null;
+    },
     my_garage: () => garage,
     set_privacy: (a) => { const c = garage.find((x) => x.id === a.p_logbook); Object.assign(c.privacy, a.p_privacy); c.publicEnabled = a.p_public_enabled; return null; },
     // The public view: the demo logbook as anyone sees it (the owner's name left out).
