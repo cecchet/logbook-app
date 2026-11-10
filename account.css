@@ -307,7 +307,9 @@ a.account-crumb:hover { text-decoration: underline; }
 .techsheet-sticker { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
 
 /* A scrutineer's permission checkboxes (account.js permissionBoxes). */
-.account-permissions { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 12px; margin: 6px 0; }
+.account-permissions { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px 12px; margin: 6px 0; align-items: start; }
+.account-perm-group { border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px 8px; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.account-perm-group legend { padding: 0 4px; font-size: 0.8rem; font-weight: 600; color: var(--muted); }
 .account-permissions label { display: flex; align-items: flex-start; gap: 6px; }
 .account-permissions input { margin-top: 3px; flex: none; }
 /* My garage: a car's privacy and public link. */
@@ -343,5 +345,13 @@ a.account-crumb:hover { text-decoration: underline; }
 .annual-gear-choices { display: flex; flex-wrap: wrap; gap: 6px 18px; }
 .annual-gear-choices label { display: inline-flex; align-items: center; gap: 4px; }
 /* One person's accreditations (one per discipline) shown together. */
-.account-table tr:has(+ tr.account-row-same) td { border-bottom: 1px dashed var(--border); }
+.account-people tr.account-person { cursor: pointer; }
+.account-people tr.account-person:hover td, .account-people tr.account-person.open td { background: var(--surface-2, rgba(127, 127, 127, 0.08)); }
+.account-people tr.account-person:focus-visible { outline: 2px solid var(--accent, #4a7bd0); outline-offset: -2px; }
+.account-person-caret { display: inline-block; width: 1em; color: var(--muted); }
+.account-people tr.account-person-details > td { padding: 0 0 8px 1.4em; }
+.account-acc-details .account-table { margin-top: 0; }
+.account-status-ok { color: var(--pass); font-weight: 600; }
+.account-status-off { color: var(--fail); font-weight: 600; }
+.account-status-mixed { color: var(--warn); font-weight: 600; }
 .account-perm-block { margin: 8px 0; padding: 6px 0 2px; border-top: 1px solid var(--border); }

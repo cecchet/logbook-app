@@ -128,7 +128,8 @@ export default async function (a) {
   await a.eval(mark(card("/^Add a scrutineer for/"), "shot-add"));
   await a.shot("42-body-add", "#shot-add");
   await a.eval(`${click("/^Cancel$/", "#shot-add")}
-    const row = [...document.querySelectorAll('.account-table tr')].find(r => /Jamie Chen/.test(r.textContent)); [...row.querySelectorAll('button')].find(b => /Permissions/.test(b.textContent)).click(); ${wait(500)}`);
+    [...document.querySelectorAll('.account-table tr.account-person')].find(r => /Jamie Chen/.test(r.textContent)).click(); ${wait(500)}
+    [...document.querySelector('.account-person-details').querySelectorAll('button')].find(b => /Permissions/.test(b.textContent)).click(); ${wait(500)}`);
   await a.eval(mark(`document.querySelector('.account-panel .account-table')`, "shot-perms"));
   await a.shot("43-body-permissions", "#shot-perms");
   await a.eval(`${click("/^Cancel$/", "#shot-perms")} ${click("/^Tech sheets/", ".account-tabs")} window.scrollTo(0, 0);`);

@@ -2529,10 +2529,20 @@
   }
   // The permission checkboxes for an accreditation in a discipline (null: all of the body's): the
   // ones the caller doesn't hold there can't be ticked (a System admin holds them all).
+  // The permissions, by what they're for.
+  const PERMISSION_GROUPS = [
+    ["Scrutineer management", ["add_scrutineers", "delete_scrutineers", "renew_licenses", "edit_permissions"]],
+    ["Annual stickers", ["issue_annual_stickers", "issue_annual_car_stickers", "void_stickers"]],
+    ["Tech inspection", ["sign_off_tech_sheets", "add_logbook_entries", "issue_logbooks"]],
+  ];
   function permissionBoxes(body, disc, perms, onChange) {
-    return h("div", { class: "account-permissions" }, PERMISSIONS.map(([p, label]) => h("label", { class: "account-checks", title: canIn(body, disc, p) ? "" : "You don't hold this permission here, so you can't grant it" }, [
-      h("input", { type: "checkbox", checked: perms.includes(p), disabled: !canIn(body, disc, p), onchange: (e) => onChange(e.target.checked ? perms.concat(p) : perms.filter((x) => x !== p)) }),
-      " " + label,
+    const label = (p) => PERMISSIONS.find(([k]) => k === p)[1];
+    return h("div", { class: "account-permissions" }, PERMISSION_GROUPS.map(([title, list]) => h("fieldset", { class: "account-perm-group" }, [
+      h("legend", {}, [title]),
+      list.map((p) => h("label", { class: "account-checks", title: canIn(body, disc, p) ? "" : "You don't hold this permission here, so you can't grant it" }, [
+        h("input", { type: "checkbox", checked: perms.includes(p), disabled: !canIn(body, disc, p), onchange: (e) => onChange(e.target.checked ? perms.concat(p) : perms.filter((x) => x !== p)) }),
+        " " + label(p),
+      ])),
     ])));
   }
   // A body's disciplines: add, rename, archive (System admins, all-disciplines technical directors).
@@ -2540,8 +2550,11 @@
   async function saveDiscipline(b, d, archived) {
     const x = d || discForm;
     if (!x.id.trim() || !x.name.trim()) return say("fail", "A discipline needs a short id (e.g. autox) and a name (e.g. Autocross).");
+    // (A short id is lowercase letters, digits and dashes: "Gravel Trials" -> "gravel-trials".)
+    const id = x.id.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+    if (!id) return say("fail", "A discipline's short id takes letters or digits (e.g. autox).");
     try {
-      await rpc("save_discipline", { p_body: b.id, p_id: x.id.trim().toLowerCase(), p_name: x.name.trim(), p_short: (x.short || "").trim() || null, p_archived: !!archived });
+      await rpc("save_discipline", { p_body: b.id, p_id: id, p_name: x.name.trim(), p_short: (x.short || "").trim() || null, p_archived: !!archived });
       if (!d) Object.assign(discForm, { id: "", name: "", short: "" });
       ui.show.addDisc = false;
       say("pass", "Discipline saved.");
@@ -2560,7 +2573,7 @@
       ])),
       actions(btn("Add a discipline", () => toggle("addDisc"), ui.show.addDisc ? "small" : "small secondary")),
       ui.show.addDisc ? [h("div", { class: "field-row" }, [
-        field("Short id", input({ value: discForm.id, placeholder: "e.g. autox" }, set("id"))),
+        field("Short id (letters, digits, dashes)", input({ value: discForm.id, placeholder: "e.g. autox" }, set("id"))),
         field("Name", input({ value: discForm.name, placeholder: "e.g. Autocross" }, set("name"))),
         field("On stickers", input({ value: discForm.short, placeholder: "e.g. AUTOX" }, set("short"))),
       ]), actions(btn("Save discipline", () => saveDiscipline(b, null, false), "small"), btn("Cancel", () => toggle("addDisc", false), "small secondary"))] : null,
@@ -2886,43 +2899,79 @@
     };
     // (With disciplines: whose accreditation is for which; the actions count permissions in it.)
     const withDisc = allDiscs.length > 0;
-    // One person's accreditations together: all disciplines first, then each discipline's.
     const discOrder = (d) => (d ? 1 + allDiscs.findIndex((x) => x.id === d) : 0);
-    const sorted = people.slice().sort((x, y) => (x.name || x.email).localeCompare(y.name || y.email) || x.email.localeCompare(y.email) || discOrder(x.discipline) - discOrder(y.discipline));
+    // One line per person (their accreditations: all disciplines first, then each discipline's);
+    // clicking it shows each accreditation's details and actions.
+    const byPerson = [];
+    people.slice().sort((x, y) => discOrder(x.discipline) - discOrder(y.discipline)).forEach((a) => {
+      let p = byPerson.find((x) => x.email === a.email);
+      if (!p) byPerson.push(p = { email: a.email, name: a.name, accs: [] });
+      p.accs.push(a);
+    });
+    byPerson.sort((x, y) => (x.name || x.email).localeCompare(y.name || y.email) || x.email.localeCompare(y.email));
     // Whether the caller can add them to more of the body's disciplines.
-    const moreFor = (a) => withDisc && addChoices.some(([id]) => !people.some((x) => x.email === a.email && !x.deleted_at && (x.discipline || "") === id));
-    out.push(people.length ? h("table", { class: "account-table" }, [
-      h("tr", {}, ["Name", "Email", withDisc ? "Discipline" : null, "Role", "License", "Expires", "Code", "Permissions", "Status", ""].filter(Boolean).map((t) => h("th", {}, [t]))),
-      sorted.map((a, i) => {
-        const same = i > 0 && sorted[i - 1].email === a.email;
-        const last = !(sorted[i + 1] && sorted[i + 1].email === a.email);
-        const changeable = canChange(a);
-        const st = accStatus(a);
-        const editing = ui.permEdit && ui.permEdit.id === a.id;
-        const may = (perm) => canIn(b.id, a.discipline, perm);
-        const row = h("tr", { class: same ? "account-row-same" : "" }, [
-          h("td", {}, same ? [] : [a.name]), h("td", {}, same ? [] : [a.email]), withDisc ? h("td", {}, [a.discipline ? disciplineName(b.id, a.discipline) : "All"]) : null,
-          h("td", {}, [a.role === "technical_director" ? "Technical director" : "Scrutineer"]),
-          h("td", {}, [a.license_number || ""]), h("td", {}, [a.license_expires ? fmtDate(a.license_expires) : "—"]), h("td", {}, [a.scrutineer_code || ""]),
-          h("td", { title: accPermissions(a).map((p) => PERMISSIONS.find(([k]) => k === p)[1]).join("\n") }, [permSummary(a)]),
-          h("td", { class: st === "active" ? "" : "account-warn" }, [st]),
-          h("td", { class: "account-row-actions" }, (changeable ? [
-            may("renew_licenses") ? btn(a.license_expires ? "Renew" : "Set expiry", () => renew(a), "small secondary") : null,
-            may("edit_permissions") && a.role !== "technical_director" ? btn("Permissions", () => { ui.permEdit = editing ? null : { id: a.id, perms: accPermissions(a).slice() }; render(); }, editing ? "small" : "small secondary") : null,
-            st === "disabled" || st === "deleted"
-              ? (may(st === "deleted" ? "delete_scrutineers" : "renew_licenses") ? btn("Re-enable", () => setAccState(a, "active"), "small secondary") : null)
-              : [may("renew_licenses") ? btn("Disable", () => setAccState(a, "disabled"), "small secondary") : null,
-                may("delete_scrutineers") ? btn("Delete", () => setAccState(a, "deleted"), "small secondary") : null],
-          ] : []).concat(last && moreFor(a) && (a.role === "scrutineer" || admin) ? [btn("Add a discipline", () => openAdd(a), "small secondary")] : [])),
+    const moreFor = (p) => withDisc && addChoices.some(([id]) => !p.accs.some((x) => !x.deleted_at && (x.discipline || "") === id));
+    // A person's status: active in all their disciplines (green), in none (red), or a mix (orange).
+    const personStatus = (p) => {
+      const live = p.accs.filter((a) => !a.deleted_at);
+      const sts = (live.length ? live : p.accs).map(accStatus);
+      if (sts.every((x) => x === "active")) return ["active", "account-status-ok"];
+      if (!sts.includes("active")) return [sts.every((x) => x === sts[0]) ? sts[0] : "inactive", "account-status-off"];
+      return ["mixed", "account-status-mixed"];
+    };
+    const roleName = (r) => (r === "technical_director" ? "Technical director" : "Scrutineer");
+    ui.accOpen = ui.accOpen || {};
+    const cols = withDisc ? 5 : 4;
+    const details = (p) => h("div", { class: "account-acc-details" }, [
+      h("table", { class: "account-table" }, [
+        h("tr", {}, [withDisc ? "Discipline" : null, "Role", "License", "Expires", "Code", "Permissions", "Status", ""].filter((t) => t !== null).map((t) => h("th", {}, [t]))),
+        p.accs.map((a) => {
+          const changeable = canChange(a);
+          const st = accStatus(a);
+          const editing = ui.permEdit && ui.permEdit.id === a.id;
+          const may = (perm) => canIn(b.id, a.discipline, perm);
+          const row = h("tr", {}, [
+            withDisc ? h("td", {}, [a.discipline ? disciplineName(b.id, a.discipline) : "All"]) : null,
+            h("td", {}, [roleName(a.role)]),
+            h("td", {}, [a.license_number || ""]), h("td", {}, [a.license_expires ? fmtDate(a.license_expires) : "—"]), h("td", {}, [a.scrutineer_code || ""]),
+            h("td", { title: accPermissions(a).map((x) => PERMISSIONS.find(([k]) => k === x)[1]).join("\n") }, [permSummary(a)]),
+            h("td", { class: st === "active" ? "account-status-ok" : "account-status-off" }, [st]),
+            h("td", { class: "account-row-actions" }, changeable ? [
+              may("renew_licenses") ? btn(a.license_expires ? "Renew" : "Set expiry", () => renew(a), "small secondary") : null,
+              may("edit_permissions") && a.role !== "technical_director" ? btn("Permissions", () => { ui.permEdit = editing ? null : { id: a.id, perms: accPermissions(a).slice() }; render(); }, editing ? "small" : "small secondary") : null,
+              st === "disabled" || st === "deleted"
+                ? (may(st === "deleted" ? "delete_scrutineers" : "renew_licenses") ? btn("Re-enable", () => setAccState(a, "active"), "small secondary") : null)
+                : [may("renew_licenses") ? btn("Disable", () => setAccState(a, "disabled"), "small secondary") : null,
+                  may("delete_scrutineers") ? btn("Delete", () => setAccState(a, "deleted"), "small secondary") : null],
+            ] : []),
+          ]);
+          if (!editing) return row;
+          return [row, h("tr", {}, [h("td", { colspan: withDisc ? "8" : "7" }, [
+            desc(a.name + "'s permissions" + (a.discipline ? " for " + disciplineName(b.id, a.discipline) : "") + ":"),
+            permissionBoxes(b.id, a.discipline, ui.permEdit.perms, (next) => { ui.permEdit.perms = next; render(); }),
+            actions(btn("Save permissions", () => savePermissions(a, ui.permEdit.perms), "small"),
+              btn("Standard scrutineer", () => savePermissions(a, null), "small secondary"),
+              btn("Cancel", () => { ui.permEdit = null; render(); }, "small secondary")),
+          ])])];
+        }),
+      ]),
+      moreFor(p) && (p.accs.some((a) => a.role === "scrutineer") || admin) ? actions(btn("Add a discipline", () => openAdd(p.accs[0]), "small secondary")) : null,
+    ]);
+    out.push(people.length ? h("table", { class: "account-table account-people" }, [
+      h("tr", {}, ["Name", "Email", withDisc ? "Disciplines" : null, "Role", "Status"].filter((t) => t !== null).map((t) => h("th", {}, [t]))),
+      byPerson.map((p) => {
+        const open = !!ui.accOpen[p.email];
+        const flip = () => { ui.accOpen[p.email] = !open; if (open && ui.permEdit && p.accs.some((a) => a.id === ui.permEdit.id)) ui.permEdit = null; render(); };
+        const [st, cls] = personStatus(p);
+        const live = p.accs.filter((a) => !a.deleted_at);
+        const row = h("tr", { class: "account-person" + (open ? " open" : ""), role: "button", tabindex: "0", "aria-expanded": open ? "true" : "false", onclick: flip,
+          onkeydown: (k) => { if (k.key === "Enter" || k.key === " ") { k.preventDefault(); flip(); } } }, [
+          h("td", {}, [h("span", { class: "account-person-caret" }, [open ? "▾" : "▸"]), " " + (p.name || "")]), h("td", {}, [p.email]),
+          withDisc ? h("td", {}, [(live.length ? live : p.accs).map((a) => (a.discipline ? disciplineName(b.id, a.discipline) : "All")).join(", ")]) : null,
+          h("td", {}, [[...new Set(p.accs.map((a) => roleName(a.role)))].join(", ")]),
+          h("td", { class: cls }, [st]),
         ]);
-        if (!editing) return row;
-        return [row, h("tr", {}, [h("td", { colspan: withDisc ? "10" : "9" }, [
-          desc(a.name + "'s permissions" + (a.discipline ? " for " + disciplineName(b.id, a.discipline) : "") + ":"),
-          permissionBoxes(b.id, a.discipline, ui.permEdit.perms, (next) => { ui.permEdit.perms = next; render(); }),
-          actions(btn("Save permissions", () => savePermissions(a, ui.permEdit.perms), "small"),
-            btn("Standard scrutineer", () => savePermissions(a, null), "small secondary"),
-            btn("Cancel", () => { ui.permEdit = null; render(); }, "small secondary")),
-        ])])];
+        return open ? [row, h("tr", { class: "account-person-details" }, [h("td", { colspan: String(cols) }, [details(p)])])] : row;
       }),
     ]) : desc("No scrutineers yet."));
     return out;
