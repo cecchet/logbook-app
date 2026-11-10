@@ -739,11 +739,30 @@ await check("the car's owner pre-fills the annual inspection from PassTech (foun
 await refused("...not twice for the same car and season", () => rpc(BUYER, "submit_annual_tech_sheet", [{ body: "ara", season: YEAR, car: { vin: "JF1GD70625L512345" } }]), /already has an annual inspection waiting/);
 await check("...but they can update it", () => rpc(BUYER, "submit_annual_tech_sheet", [{ id: annualSheet, body: "ara", car: { vin: "JF1GD70625L512345", owner: "Bo Buyer" }, competitor: { items: {} } }]));
 await refused("a stranger can't update it", () => rpc(STRANGER, "submit_annual_tech_sheet", [{ id: annualSheet, body: "ara", car: { vin: "X1234" } }]), /no such annual inspection of yours/);
+await refused("a standard scrutineer doesn't do annual car inspections", () => rpc(S2, "annual_tech_sheets", ["ara", null, YEAR]), /allowed to do annual car inspections/);
+await refused("...nor issue annual car stickers", () => rpc(S2, "issue_annual_car_sticker", [annualSheet]), /must pass|annual car stickers/);
+await check("the technical director grants them annual car stickers (their own permission)", async () => {
+  const s2 = (await db.query("select id, permissions from accreditations where email = $1 and body_id = 'ara'", [S2])).rows[0];
+  const perms = (s2.permissions || ["issue_annual_stickers", "void_stickers", "sign_off_tech_sheets", "issue_logbooks", "add_logbook_entries"]).concat("issue_annual_car_stickers");
+  await rpc(TD, "set_accreditation_permissions", [s2.id, perms]);
+  const roles = await rpc(S2, "my_roles");
+  assert(roles.accreditations.some((x) => x.permissions.includes("issue_annual_car_stickers")), JSON.stringify(roles.accreditations));
+});
+await check("one person, two disciplines, different permissions", async () => {
+  await rpc(ADMIN, "save_body", ["sccx", "Sports Car Club X", null]);
+  await rpc(ADMIN, "save_discipline", ["sccx", "hpde", "HPDE"]);
+  await rpc(ADMIN, "save_discipline", ["sccx", "rally", "Rally"]);
+  await rpc(ADMIN, "grant_accreditation", [S2, "Sam Two", "sccx", "scrutineer", "X-8", null, null, ["sign_off_tech_sheets"], "hpde"]);
+  await rpc(ADMIN, "grant_accreditation", [S2, "Sam Two", "sccx", "scrutineer", "X-8", null, null, ["sign_off_tech_sheets", "issue_annual_car_stickers"], "rally"]);
+  const perms = async (d) => (await as(S2, (q) => q("select public.my_permissions_in('sccx', $1) p", [d])))[0].p;
+  const h = await perms("hpde"), r = await perms("rally");
+  assert(h.includes("sign_off_tech_sheets") && !h.includes("issue_annual_car_stickers") && r.includes("issue_annual_car_stickers"), JSON.stringify({ h, r }));
+});
 await check("the body's scrutineers see the season's annual inspections", async () => {
   const list = await rpc(S2, "annual_tech_sheets", ["ara", null, YEAR]);
   assert(list.some((x) => x.id === annualSheet && x.logbookNumber === issued.digitalNumber), JSON.stringify(list.map((x) => x.id)));
 });
-await refused("a stranger doesn't", () => rpc(STRANGER, "annual_tech_sheets", ["ara", null, YEAR]), /only the body's scrutineers/);
+await refused("a stranger doesn't", () => rpc(STRANGER, "annual_tech_sheets", ["ara", null, YEAR]), /allowed to do annual car inspections/);
 await refused("no annual car sticker before it passes", () => rpc(S2, "issue_annual_car_sticker", [annualSheet]), /must pass/);
 let annualSticker;
 await check("a scrutineer passes it and issues the car's annual sticker", async () => {

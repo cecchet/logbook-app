@@ -8,7 +8,7 @@
   const iso = (n) => new Date(Date.now() + n * DAY).toISOString().slice(0, 10);
   const at = (n, h) => new Date(Date.now() + n * DAY).toISOString().slice(0, 10) + "T" + String(h || 10).padStart(2, "0") + ":15:00Z";
   const ME = "alex.morgan@example.com";
-  const ALL = ["add_scrutineers", "renew_licenses", "edit_permissions", "delete_scrutineers", "issue_annual_stickers", "void_stickers", "sign_off_tech_sheets", "issue_logbooks", "add_logbook_entries"];
+  const ALL = ["add_scrutineers", "renew_licenses", "edit_permissions", "delete_scrutineers", "issue_annual_stickers", "issue_annual_car_stickers", "void_stickers", "sign_off_tech_sheets", "issue_logbooks", "add_logbook_entries"];
   try { localStorage.setItem("scrutineering-app-tour-seen", "1"); localStorage.setItem("logbook-app-tour-seen", "1"); } catch (e) {}
 
   // ---- Bodies, disciplines, people ----
@@ -25,8 +25,10 @@
     license_number: license, license_expires: expires, scrutineer_code: code, permissions, disabled_at: null, deleted_at: null }, extra);
   const accreditations = [
     acc("a1", "Alex Morgan", ME, "technical_director", null, "DRC-001", iso(156), "01", null),
-    acc("a2", "Jamie Chen", "jamie.chen@example.com", "scrutineer", "rally", "DRC-014", iso(156), "14", null),
+    acc("a2", "Jamie Chen", "jamie.chen@example.com", "scrutineer", "rally", "DRC-014", iso(156), "14", ["issue_annual_stickers", "issue_annual_car_stickers", "void_stickers", "sign_off_tech_sheets", "issue_logbooks", "add_logbook_entries"]),
     acc("a3", "Sam Patel", "sam.patel@example.com", "scrutineer", "autox", "DRC-022", iso(156), "22", ["issue_annual_stickers", "sign_off_tech_sheets"]),
+    // Two disciplines, different permissions: annual car inspections in Rally only.
+    acc("a6", "Jamie Chen", "jamie.chen@example.com", "scrutineer", "autox", "DRC-014", iso(156), "14", ["issue_annual_stickers", "void_stickers", "sign_off_tech_sheets"]),
     acc("a4", "Riley Brooks", "riley.brooks@example.com", "scrutineer", null, "DRC-009", iso(-118), "09", null),
     acc("a5", "Taylor Kim", "taylor.kim@example.com", "scrutineer", "rally", "DRC-031", iso(156), "31", null, { disabled_at: at(-40) }),
   ];

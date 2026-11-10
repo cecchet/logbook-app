@@ -32,7 +32,7 @@ const logs = [];
 ws.addEventListener("message", (m) => {
   const msg = JSON.parse(m.data);
   if (msg.id && pending.has(msg.id)) { pending.get(msg.id)(msg); pending.delete(msg.id); }
-  if (msg.method === "Runtime.exceptionThrown") logs.push("exception: " + JSON.stringify(msg.params.exceptionDetails).slice(0, 400));
+  if (msg.method === "Runtime.exceptionThrown") logs.push("exception: " + ((msg.params.exceptionDetails.exception && msg.params.exceptionDetails.exception.description) || JSON.stringify(msg.params.exceptionDetails)).slice(0, 400));
   if (msg.method === "Runtime.consoleAPICalled" && /error|warn/.test(msg.params.type)) logs.push(msg.params.type + ": " + msg.params.args.map((a) => a.value || a.description).join(" ").slice(0, 300));
 });
 const send = (method, params = {}) => new Promise((r) => { const id = nextId++; pending.set(id, r); ws.send(JSON.stringify({ id, method, params })); });

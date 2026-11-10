@@ -159,7 +159,9 @@
   // accreditation lists its own. my_roles() gives each of the caller's accreditations its permissions.
   const PERMISSIONS = [
     ["add_scrutineers", "Add scrutineers"], ["renew_licenses", "Renew licenses / disable"], ["edit_permissions", "Edit permissions"],
-    ["delete_scrutineers", "Delete scrutineers"], ["issue_annual_stickers", "Issue annual stickers"], ["void_stickers", "Void stickers"],
+    ["delete_scrutineers", "Delete scrutineers"], ["issue_annual_stickers", "Issue annual gear stickers"],
+    // (supabase/migrations/20261110000000_annual_car_permission.sql: its own training -- not a standard one.)
+    ["issue_annual_car_stickers", "Issue annual car stickers"], ["void_stickers", "Void stickers"],
     ["sign_off_tech_sheets", "Sign off tech sheets"], ["issue_logbooks", "Issue logbooks"], ["add_logbook_entries", "Add logbook entries"],
   ];
   const ALL_PERMISSIONS = PERMISSIONS.map(([p]) => p);
@@ -2473,21 +2475,33 @@
 
   // ---- Administration (System admins, technical directors) -----------
   const bodyForm = { id: "", name: "", note: "" };
-  // permissions: the new scrutineer's (null: the defaults the caller can grant).
-  const accForm = { email: "", name: "", body: "", role: "scrutineer", license: "", code: "", expires: "", permissions: null };
+  // discs: the disciplines it's for ("" all of them), each with the scrutineer's permissions in it
+  // (null: the defaults the caller can grant there) -- one accreditation each. person: adding
+  // disciplines to someone already accredited (their email).
+  const accForm = { email: "", name: "", body: "", role: "scrutineer", license: "", code: "", expires: "", discs: {}, person: null };
   let adminEmail = "";
   async function saveBody() {
     try { await rpc("save_body", { p_id: bodyForm.id.trim().toLowerCase(), p_name: bodyForm.name.trim(), p_number_note: bodyForm.note.trim() || null }); Object.assign(bodyForm, { id: "", name: "", note: "" }); ui.show.addBody = false; ui.show.editBody = false; say("pass", "Sanctioning body saved."); loadAll(); }
     catch (e) { fail(e); }
   }
   async function grant() {
+    const discs = Object.keys(accForm.discs);
+    if (!discs.length) return say("fail", "Pick the discipline(s) they're accredited for.");
+    let done = 0;
     try {
-      await rpc("grant_accreditation", { p_email: accForm.email, p_name: accForm.name, p_body: accForm.body, p_role: accForm.role, p_license: accForm.license || null, p_code: accForm.code || null, p_expires: accForm.expires || null,
-        p_permissions: accForm.role === "scrutineer" ? accForm.permissions : null, p_discipline: accForm.discipline || null });
-      Object.assign(accForm, { email: "", name: "", license: "", code: "", expires: "", permissions: null });
+      for (const d of discs) {
+        await rpc("grant_accreditation", { p_email: accForm.email, p_name: accForm.name, p_body: accForm.body, p_role: accForm.role, p_license: accForm.license || null, p_code: accForm.code || null, p_expires: accForm.expires || null,
+          p_permissions: accForm.role === "scrutineer" ? accForm.discs[d] : null, p_discipline: d || null });
+        done++;
+      }
+      Object.assign(accForm, { email: "", name: "", license: "", code: "", expires: "", discs: {}, person: null });
       ui.show.addAcc = false;
-      say("pass", "Accreditation saved."); loadAll();
-    } catch (e) { fail(e); }
+      say("pass", discs.length > 1 ? discs.length + " accreditations saved." : "Accreditation saved."); loadAll();
+    } catch (e) {
+      // (The ones saved before the error stay saved: only the rest are left to retry.)
+      if (done) { discs.slice(0, done).forEach((d) => delete accForm.discs[d]); loadAll(); }
+      fail(e);
+    }
   }
   // Renew (a license that expires): a new date, a year after the current
   // one by default. Set expiry (one that doesn't): start expiring. Either
@@ -2809,28 +2823,60 @@
     // Adding: for the disciplines (or all of them, "") the caller may add scrutineers to.
     const addChoices = (canIn(b.id, null, "add_scrutineers") ? [["", discs.length ? "All disciplines" : b.name]] : [])
       .concat(discs.filter((d) => canIn(b.id, d.id, "add_scrutineers")).map((d) => [d.id, d.name]));
-    if (addChoices.length) out.push(actions(btn(admin ? "Add a technical director or scrutineer" : "Add a scrutineer", () => toggle("addAcc"), ui.show.addAcc ? "small" : "small secondary")));
+    // (Adding disciplines for someone already accredited opens the same form, for them.)
+    const openAdd = (person) => {
+      Object.assign(accForm, { body: b.id, discs: {}, role: person ? person.role : "scrutineer" },
+        person ? { person: person.email, email: person.email, name: person.name, license: person.license_number || "", code: person.scrutineer_code || "", expires: person.license_expires || "" }
+          : accForm.person ? { person: null, email: "", name: "", license: "", code: "", expires: "" } : { person: null });
+      if (!discs.length) accForm.discs = { "": null };
+      ui.show.addAcc = true; render();
+      if (person) setTimeout(() => { const el = document.getElementById("add-acc"); if (el) el.scrollIntoView({ behavior: "smooth", block: "center" }); }, 0);
+    };
+    const adding = ui.show.addAcc && !accForm.person;
+    if (addChoices.length) out.push(actions(btn(admin ? "Add a technical director or scrutineer" : "Add a scrutineer", () => (adding ? toggle("addAcc", false) : openAdd(null)), adding ? "small" : "small secondary")));
     if (ui.show.addAcc && addChoices.length) {
-      if (accForm.body !== b.id || !addChoices.some(([id]) => id === (accForm.discipline || ""))) { accForm.body = b.id; accForm.discipline = addChoices[0][0]; accForm.permissions = null; }
+      if (accForm.body !== b.id) Object.assign(accForm, { body: b.id, discs: discs.length ? {} : { "": null }, person: null });
       const set = (k) => (v) => { accForm[k] = v; };
-      const disc = accForm.discipline || null;
-      const editPermsHere = canIn(b.id, disc, "edit_permissions");
-      // A new scrutineer's permissions: the defaults the caller holds in that discipline, unless changed here.
-      const perms = accForm.permissions || DEFAULT_SCRUTINEER.filter((p) => canIn(b.id, disc, p));
-      out.push(h("div", { class: "account-card" }, [
-        h("div", { class: "account-card-title" }, [(admin ? "Add a technical director or scrutineer" : "Add a scrutineer") + " for " + b.name]),
-        h("div", { class: "field-row" }, [field("Name", input({ value: accForm.name }, set("name"))), field("Email", input({ value: accForm.email, inputmode: "email" }, set("email")))]),
-        discs.length ? h("div", { class: "field-row" }, [field("Discipline", select(addChoices, accForm.discipline || "", (v) => { accForm.discipline = v; accForm.permissions = null; render(); }))]) : null,
+      // The disciplines they already hold (adding more for someone): not offered again.
+      const held = accForm.person ? people.filter((a) => a.email === accForm.person && !a.deleted_at).map((a) => a.discipline || "") : [];
+      const choices = addChoices.filter(([id]) => !held.includes(id));
+      const picked = (id) => Object.prototype.hasOwnProperty.call(accForm.discs, id);
+      // "All disciplines", or some of them -- not both.
+      const pick = (id, on) => {
+        if (!on) delete accForm.discs[id];
+        else { if (id === "") accForm.discs = {}; else delete accForm.discs[""]; accForm.discs[id] = null; }
+        render();
+      };
+      // A new scrutineer's permissions in a discipline: the defaults the caller holds there, unless changed here.
+      const permsIn = (d) => accForm.discs[d] || DEFAULT_SCRUTINEER.filter((p) => canIn(b.id, d || null, p));
+      const permBlock = (d) => {
+        const label = d ? disciplineName(b.id, d) : discs.length ? "all disciplines" : b.name;
+        return canIn(b.id, d || null, "edit_permissions")
+          ? h("div", { class: "account-perm-block" }, [desc("Permissions for " + label + " (a technical director holds them all):"),
+              permissionBoxes(b.id, d || null, permsIn(d), (next) => { accForm.discs[d] = next; render(); })])
+          : desc("For " + label + ", they get the standard scrutineer permissions you hold there: " + permsIn(d).map((p) => PERMISSIONS.find(([k]) => k === p)[1].toLowerCase()).join(", ") + ".");
+      };
+      const who = accForm.person ? people.find((a) => a.email === accForm.person) : null;
+      const chosen = Object.keys(accForm.discs).sort((x, y) => discs.findIndex((d) => d.id === x) - discs.findIndex((d) => d.id === y));
+      out.push(h("div", { class: "account-card", id: "add-acc" }, [
+        h("div", { class: "account-card-title" }, [who ? "Add disciplines for " + who.name : (admin ? "Add a technical director or scrutineer" : "Add a scrutineer") + " for " + b.name]),
+        who ? desc(who.email + " -- each discipline is its own accreditation, with its own permissions.")
+          : h("div", { class: "field-row" }, [field("Name", input({ value: accForm.name }, set("name"))), field("Email", input({ value: accForm.email, inputmode: "email" }, set("email")))]),
+        discs.length ? h("div", { class: "account-perm-block" }, [
+          desc("Disciplines -- one, several, or all of them (each gets its own permissions below):"),
+          choices.length ? h("div", { class: "account-checks" }, choices.map(([id, name]) => h("label", {}, [
+            h("input", { type: "checkbox", checked: picked(id), onchange: (e) => pick(id, e.target.checked) }), " " + name])))
+            : desc("They already hold every discipline you can add them to."),
+        ]) : null,
         h("div", { class: "field-row" }, [
-          admin ? field("Role", select([["scrutineer", "Scrutineer"], ["technical_director", "Technical director"]], accForm.role, (v) => { accForm.role = v; render(); })) : null,
+          admin && !who ? field("Role", select([["scrutineer", "Scrutineer"], ["technical_director", "Technical director"]], accForm.role, (v) => { accForm.role = v; render(); })) : null,
           field("License number", input({ value: accForm.license }, set("license"))),
           field("License expires (optional)", dateInput(accForm.expires, set("expires"))),
           field("Scrutineer code", input({ value: accForm.code, placeholder: "e.g. ARA 2-digit number" }, set("code"))),
         ]),
-        accForm.role === "scrutineer" && editPermsHere ? [desc("Permissions (a technical director holds them all):"),
-          permissionBoxes(b.id, disc, perms, (next) => { accForm.permissions = next; render(); })] : null,
-        accForm.role === "scrutineer" && !editPermsHere ? desc("They get the standard scrutineer permissions you hold: " + perms.map((p) => PERMISSIONS.find(([k]) => k === p)[1].toLowerCase()).join(", ") + ".") : null,
-        actions(btn("Save", grant), btn("Cancel", () => toggle("addAcc", false), "secondary")),
+        accForm.role === "scrutineer" ? chosen.map(permBlock) : null,
+        accForm.role === "scrutineer" && chosen.length ? desc("Annual car stickers take their own training: they aren't a standard permission -- tick them where this scrutineer does annual car inspections.") : null,
+        actions(btn("Save", grant), btn("Cancel", () => { accForm.person = null; toggle("addAcc", false); }, "secondary")),
       ]));
     }
     const permSummary = (a) => {
@@ -2840,27 +2886,34 @@
     };
     // (With disciplines: whose accreditation is for which; the actions count permissions in it.)
     const withDisc = allDiscs.length > 0;
+    // One person's accreditations together: all disciplines first, then each discipline's.
+    const discOrder = (d) => (d ? 1 + allDiscs.findIndex((x) => x.id === d) : 0);
+    const sorted = people.slice().sort((x, y) => (x.name || x.email).localeCompare(y.name || y.email) || x.email.localeCompare(y.email) || discOrder(x.discipline) - discOrder(y.discipline));
+    // Whether the caller can add them to more of the body's disciplines.
+    const moreFor = (a) => withDisc && addChoices.some(([id]) => !people.some((x) => x.email === a.email && !x.deleted_at && (x.discipline || "") === id));
     out.push(people.length ? h("table", { class: "account-table" }, [
       h("tr", {}, ["Name", "Email", withDisc ? "Discipline" : null, "Role", "License", "Expires", "Code", "Permissions", "Status", ""].filter(Boolean).map((t) => h("th", {}, [t]))),
-      people.map((a) => {
+      sorted.map((a, i) => {
+        const same = i > 0 && sorted[i - 1].email === a.email;
+        const last = !(sorted[i + 1] && sorted[i + 1].email === a.email);
         const changeable = canChange(a);
         const st = accStatus(a);
         const editing = ui.permEdit && ui.permEdit.id === a.id;
         const may = (perm) => canIn(b.id, a.discipline, perm);
-        const row = h("tr", {}, [
-          h("td", {}, [a.name]), h("td", {}, [a.email]), withDisc ? h("td", {}, [a.discipline ? disciplineName(b.id, a.discipline) : "All"]) : null,
+        const row = h("tr", { class: same ? "account-row-same" : "" }, [
+          h("td", {}, same ? [] : [a.name]), h("td", {}, same ? [] : [a.email]), withDisc ? h("td", {}, [a.discipline ? disciplineName(b.id, a.discipline) : "All"]) : null,
           h("td", {}, [a.role === "technical_director" ? "Technical director" : "Scrutineer"]),
           h("td", {}, [a.license_number || ""]), h("td", {}, [a.license_expires ? fmtDate(a.license_expires) : "—"]), h("td", {}, [a.scrutineer_code || ""]),
           h("td", { title: accPermissions(a).map((p) => PERMISSIONS.find(([k]) => k === p)[1]).join("\n") }, [permSummary(a)]),
           h("td", { class: st === "active" ? "" : "account-warn" }, [st]),
-          h("td", { class: "account-row-actions" }, changeable ? [
+          h("td", { class: "account-row-actions" }, (changeable ? [
             may("renew_licenses") ? btn(a.license_expires ? "Renew" : "Set expiry", () => renew(a), "small secondary") : null,
             may("edit_permissions") && a.role !== "technical_director" ? btn("Permissions", () => { ui.permEdit = editing ? null : { id: a.id, perms: accPermissions(a).slice() }; render(); }, editing ? "small" : "small secondary") : null,
             st === "disabled" || st === "deleted"
               ? (may(st === "deleted" ? "delete_scrutineers" : "renew_licenses") ? btn("Re-enable", () => setAccState(a, "active"), "small secondary") : null)
               : [may("renew_licenses") ? btn("Disable", () => setAccState(a, "disabled"), "small secondary") : null,
                 may("delete_scrutineers") ? btn("Delete", () => setAccState(a, "deleted"), "small secondary") : null],
-          ] : []),
+          ] : []).concat(last && moreFor(a) && (a.role === "scrutineer" || admin) ? [btn("Add a discipline", () => openAdd(a), "small secondary")] : [])),
         ]);
         if (!editing) return row;
         return [row, h("tr", {}, [h("td", { colspan: withDisc ? "10" : "9" }, [
@@ -2998,13 +3051,17 @@
   // ui.annual: { body, season, tab, item, applications, stickers, busy }
   //   item: { category, owner, competitor (an application's gear and photos, as a team's line),
   //           inspection, view, replaces (the sticker read), application (its id) }
+  // Gear stickers (issue_annual_stickers) and car stickers (issue_annual_car_stickers) are separate permissions.
+  const ANNUAL_PERMS = ["issue_annual_stickers", "issue_annual_car_stickers"];
+  const annualGear = (a) => canIn(a.body, annualDisc(a) || null, "issue_annual_stickers");
+  const annualCars = (a) => a.discipline !== NO_DISCIPLINE && canIn(a.body, annualDisc(a) || null, "issue_annual_car_stickers");
   function annualBodies() {
-    return ui.bodies.filter((b) => !b.disabled_at && !b.deleted_at && can(b.id, "issue_annual_stickers"));
+    return ui.bodies.filter((b) => !b.disabled_at && !b.deleted_at && ANNUAL_PERMS.some((p) => can(b.id, p)));
   }
   // The body's disciplines the caller issues annual stickers for (a body without any: "").
   function annualDisciplines(body) {
     const list = disciplinesOf(body);
-    return list.length ? list.filter((d) => canIn(body, d.id, "issue_annual_stickers")) : null;
+    return list.length ? list.filter((d) => ANNUAL_PERMS.some((p) => canIn(body, d.id, p))) : null;
   }
   // A body's stickers from before it had disciplines (discipline null): to see and void, not to issue.
   const NO_DISCIPLINE = "__none";
@@ -3134,14 +3191,16 @@
     if (!a || !annualReady(a)) return;
     try {
       // (Applications for the discipline picked.)
-      a.applications = (await rpc("list_sticker_applications", { p_body: a.body, p_status: "pending" }))
-        .filter((x) => (x.discipline || "") === annualDisc(a));
+      const gear = annualGear(a);
+      a.applications = gear ? (await rpc("list_sticker_applications", { p_body: a.body, p_status: "pending" }))
+        .filter((x) => (x.discipline || "") === annualDisc(a)) : [];
       a.stickers = await rpc("list_stickers", { p: Object.assign({ body: a.body, discipline: annualDisc(a) }, a.allSeasons ? {} : { season: a.season }) });
-      // Annual car inspections, when the body (discipline) has an annual inspection sheet.
-      a.cars = annualCarTemplate(a) ? await rpc("annual_tech_sheets", { p_body: a.body, p_discipline: annualDisc(a) || null, p_season: a.season }) : null;
+      // Annual car inspections, when the body (discipline) has an annual inspection sheet -- for
+      // scrutineers allowed to do them.
+      a.cars = annualCarTemplate(a) && annualCars(a) ? await rpc("annual_tech_sheets", { p_body: a.body, p_discipline: annualDisc(a) || null, p_season: a.season }) : null;
       // Who submitted the application for each sticker issued from an application (PassTech), to search by.
       a.submitters = {};
-      (await rpc("list_sticker_applications", { p_body: a.body, p_status: "issued" })).forEach((x) => { if (x.stickerCode) a.submitters[x.stickerCode] = x.submittedBy; });
+      if (gear) (await rpc("list_sticker_applications", { p_body: a.body, p_status: "issued" })).forEach((x) => { if (x.stickerCode) a.submitters[x.stickerCode] = x.submittedBy; });
       if (!ui.stickerCatalog) TechSheet.loadCatalog().then((c) => { ui.stickerCatalog = c; render(); }, () => {});
     } catch (e) { fail(e); }
     render();
@@ -3236,11 +3295,17 @@
     const apps = a.applications || [];
     // No discipline: only what's already there -- new stickers are a discipline's.
     const older = a.discipline === NO_DISCIPLINE;
+    // Gear stickers and car stickers: each with its own permission.
+    const gear = annualGear(a);
+    const carTpl = older || !annualCars(a) ? null : annualCarTemplate(a);
     if (older && a.tab === "issue") a.tab = "issued";
-    const carTpl = older ? null : annualCarTemplate(a);
-    if (a.tab === "cars" && !carTpl) a.tab = "issue";
-    out.push(tabs([].concat(older ? [] : [["issue", "Issue a sticker"]], [["applications", "Applications (" + apps.length + ")"], ["issued", (a.allSeasons ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]],
+    if (!gear && a.tab !== "cars" && a.tab !== "issued") a.tab = carTpl ? "cars" : "issued";
+    if (a.tab === "cars" && !carTpl) a.tab = gear ? "issue" : "issued";
+    out.push(tabs([].concat(older || !gear ? [] : [["issue", "Issue a sticker"]], gear ? [["applications", "Applications (" + apps.length + ")"]] : [],
+      [["issued", (a.allSeasons ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]],
       carTpl ? [["cars", "Cars (" + (a.cars || []).length + ")"]] : []), a.tab, (t) => { a.tab = t; render(); }));
+    if (!gear && !carTpl && canIn(a.body, annualDisc(a) || null, "issue_annual_car_stickers") && !older)
+      out.push(desc(annualLabel(a) + " has no annual car inspection sheet yet: its technical director picks one in Sanctioning bodies › " + bodyName(a.body) + " › Annual stickers."));
     if (a.tab === "cars") return out.concat(renderAnnualCars(a, carTpl));
     if (a.tab === "applications") {
       out.push(h("div", { class: "account-card" }, [
@@ -3344,7 +3409,7 @@
     // Sanctioning bodies: organizers, and whoever manages a body's scrutineers.
     const manager = organizer || MANAGE.some(canAnywhere);
     return SITE === "scrutineering"
-      ? (staff ? ["event"] : []).concat(canAnywhere("issue_annual_stickers") ? ["annual"] : [], organizer ? ["events"] : [], manager ? ["bodies"] : [])
+      ? (staff ? ["event"] : []).concat(ANNUAL_PERMS.some(canAnywhere) ? ["annual"] : [], organizer ? ["events"] : [], manager ? ["bodies"] : [])
       : ["create", "library"].concat(manager ? ["bodies"] : []);
   }
   // The home screen shows the modes only; Event and Admin modes don't use

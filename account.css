@@ -342,3 +342,6 @@ a.account-crumb:hover { text-decoration: underline; }
 .annual-gear-row .account-card-title { display: flex; gap: 8px; align-items: center; }
 .annual-gear-choices { display: flex; flex-wrap: wrap; gap: 6px 18px; }
 .annual-gear-choices label { display: inline-flex; align-items: center; gap: 4px; }
+/* One person's accreditations (one per discipline) shown together. */
+.account-table tr:has(+ tr.account-row-same) td { border-bottom: 1px dashed var(--border); }
+.account-perm-block { margin: 8px 0; padding: 6px 0 2px; border-top: 1px solid var(--border); }
