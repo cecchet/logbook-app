@@ -2561,6 +2561,13 @@
       loadAll();
     } catch (e) { fail(e); }
   }
+  // Deletes a discipline with no stickers, applications, events, annual inspections or scrutineers
+  // (supabase/migrations/20261110000100_delete_discipline.sql): else the server says what it has.
+  async function deleteDiscipline(b, d) {
+    if (!confirm("Delete the discipline " + d.name + " from " + b.name + "?\n\nOnly a discipline with nothing recorded under it (no stickers, events, tech sheets or scrutineers) can be deleted. This can't be undone.")) return;
+    try { await rpc("delete_discipline", { p_body: b.id, p_id: d.id }); say("pass", "Discipline " + d.name + " deleted."); loadAll(); }
+    catch (e) { fail(e); }
+  }
   function renderDisciplines(b, list) {
     const set = (k) => (v) => { discForm[k] = v; };
     return h("div", { class: "account-card" }, [
@@ -2570,6 +2577,9 @@
       list.map((d) => h("div", { class: "account-entry" }, [
         h("span", { class: "account-entry-main" }, [h("strong", {}, [d.name]), h("span", { class: "element-desc" }, [" · " + d.id + " · on stickers: " + (d.short || d.id.toUpperCase()) + (d.archived_at ? " · archived" : "")])]),
         btn(d.archived_at ? "Restore" : "Archive", () => saveDiscipline(b, { id: d.id, name: d.name, short: d.short || "" }, !d.archived_at), "small secondary"),
+        // Deleting: only with nothing recorded under it (the server checks stickers, events, tech sheets...).
+        !(ui.accreditations || []).some((a) => a.body_id === b.id && a.discipline === d.id && !a.deleted_at)
+          ? btn("Delete", () => deleteDiscipline(b, d), "small secondary") : null,
       ])),
       actions(btn("Add a discipline", () => toggle("addDisc"), ui.show.addDisc ? "small" : "small secondary")),
       ui.show.addDisc ? [h("div", { class: "field-row" }, [

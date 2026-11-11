@@ -786,5 +786,23 @@ await check("at the body's event that season, the staff see car 12's annual stic
 });
 await refused("...a stranger doesn't", () => rpc(STRANGER, "event_annual_car_stickers", [event]), /not on this event's staff/);
 
+// ---- Deleting a discipline with nothing recorded under it ----
+console.log("\nDeleting a discipline");
+await refused("a scrutineer can't delete a discipline", () => rpc(S2, "delete_discipline", ["sccx", "hpde"]), /technical directors manage/);
+await refused("not while it has scrutineers", () => rpc(ADMIN, "delete_discipline", ["sccx", "hpde"]), /scrutineers \(delete them first\)/);
+await check("once its scrutineers are deleted, it goes (with their accreditations)", async () => {
+  const id = (await db.query("select id from accreditations where email = $1 and body_id = 'sccx' and discipline = 'hpde'", [S2])).rows[0].id;
+  await rpc(ADMIN, "set_accreditation_state", [id, "deleted"]);
+  await rpc(ADMIN, "delete_discipline", ["sccx", "hpde"]);
+  const left = (await db.query("select (select count(*) from body_disciplines where body_id = 'sccx' and id = 'hpde')::int d, (select count(*) from accreditations where id = $1)::int a", [id])).rows[0];
+  assert(left.d === 0 && left.a === 0, JSON.stringify(left));
+});
+await refused("not one with events", async () => {
+  await rpc(ADMIN, "save_event", [{ body: "sccx", discipline: "rally", name: "X Rally", scrutineeringStartsOn: day(0), startsOn: day(0), endsOn: day(0) }]);
+  const id = (await db.query("select id from accreditations where email = $1 and body_id = 'sccx' and discipline = 'rally'", [S2])).rows[0].id;
+  await rpc(ADMIN, "set_accreditation_state", [id, "deleted"]);
+  await rpc(ADMIN, "delete_discipline", ["sccx", "rally"]);
+}, /has events/);
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
