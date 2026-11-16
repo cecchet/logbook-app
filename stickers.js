@@ -68,10 +68,11 @@
     return "LOGBOOK · " + (snap.digitalNumber || "");
   }
   // The body, its discipline, and when it's good for: a gear sticker's season ("SCCNH · AUTOX · 2026",
-  // "ARA · 2026"), else the day it was issued.
+  // "ARA · 2026"), else the day it was issued. A seasonless body's gear sticker (it only records the
+  // certifications, e.g. PassTech's) has no year.
   function footer(st) {
     return [(st.body || "").toUpperCase(), st.disciplineShort || (st.discipline ? String(st.discipline).toUpperCase() : ""),
-      (st.kind === "gear" || (st.kind === "car" && (st.snapshot || {}).annual)) && st.season ? String(st.season) : day(st.issuedAt)].filter(Boolean).join(" · ");
+      st.kind === "gear" && st.seasonless ? "" : (st.kind === "gear" || (st.kind === "car" && (st.snapshot || {}).annual)) && st.season ? String(st.season) : day(st.issuedAt)].filter(Boolean).join(" · ");
   }
 
   // The sticker, 100 x 100 units: the QR code, then what it's for, its code, the body and date.
@@ -211,7 +212,8 @@
       ": a sticker voided since then still shows as valid here."]));
     out.push(h("div", { class: "sticker-status " + (valid ? "valid" : "void") }, [
       h("strong", {}, [valid ? "VALID" : data.status === "expired" ? "EXPIRED" : "VOID"]), " sticker " + fmtCode(data.code),
-      data.kind === "gear" && data.season ? " -- " + [data.bodyName || (data.body || "").toUpperCase(), data.disciplineName].filter(Boolean).join(" ") + " " + data.season + " season" : null,
+      data.kind === "gear" && data.seasonless ? " -- " + [data.bodyName || (data.body || "").toUpperCase(), data.disciplineName].filter(Boolean).join(" ") + ": the certifications on its tags, for the scrutineer to check against their own rules" : null,
+      data.kind === "gear" && data.season && !data.seasonless ? " -- " + [data.bodyName || (data.body || "").toUpperCase(), data.disciplineName].filter(Boolean).join(" ") + " " + data.season + " season" : null,
       data.status === "expired" ? (data.kind === "gear" ? " (over)" : " -- for an event that's over") : null,
       data.status === "void" ? " -- " + (data.voidReason === "replaced" && data.replacedBy ? "replaced by sticker " + fmtCode(data.replacedBy) : data.voidReason || "voided") + (data.voidedAt ? " (" + fmtDate(data.voidedAt) + ")" : "") : null,
     ]));

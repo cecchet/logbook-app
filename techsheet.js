@@ -601,7 +601,7 @@
         (d.snapshot.photos || []).forEach((p) => {
           if (!linePhotos.concat(res.photos || []).some((q) => q.sha256 === p.sha256)) res.photos = (res.photos || []).concat({ sha256: p.sha256, kind: p.kind === "tag" ? "tag" : "item" });
         });
-        res.sticker = { code: d.code, status: d.status, body: d.body, bodyName: d.bodyName, discipline: d.discipline, disciplineName: d.disciplineName, season: d.season, issuedAt: d.issuedAt,
+        res.sticker = { code: d.code, status: d.status, body: d.body, bodyName: d.bodyName, discipline: d.discipline, disciplineName: d.disciplineName, season: d.season, seasonless: d.seasonless, issuedAt: d.issuedAt,
           offlineAsOf: d.offlineAsOf || undefined };
         stickerNotes.delete(res);
       } catch (e) { stickerNotes.set(res, e.message || String(e)); }
@@ -622,7 +622,7 @@
       if (!st && !teamCodes.length && !note && !canRead) return null;
       return h("div", { class: "techsheet-sticker" }, [
         st ? h("span", { class: "techsheet-chip " + (st.status === "valid" ? "pass" : "fail"), title: "Read from the sticker: its gear details and photos" }, [
-          "Sticker " + Stickers.fmtCode(st.code) + (st.season ? " · " + [st.bodyName || String(st.body || "").toUpperCase(), st.disciplineName].filter(Boolean).join(" ") + " " + st.season + " season" : "") +
+          "Sticker " + Stickers.fmtCode(st.code) + (st.season ? " · " + [st.bodyName || String(st.body || "").toUpperCase(), st.disciplineName].filter(Boolean).join(" ") + (st.seasonless ? "" : " " + st.season + " season") : "") +
           " · " + (st.status === "valid" ? "valid" : st.status) + (st.offlineAsOf ? " (checked offline, as of " + new Date(st.offlineAsOf).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) + ")" : "")]) : null,
         // A sticker from another body, or another of its disciplines, isn't good for this event.
         st && offScope(st) ? h("span", { class: "techsheet-chip fail" }, ["Not for this event: it's for " + [st.bodyName || String(st.body || "").toUpperCase(), st.disciplineName].filter(Boolean).join(" ") +

@@ -2008,7 +2008,7 @@
       if (!s) continue;
       const ev = c.bundle.event;
       const atEvent = s.event === ev.id ? ev : null;
-      const status = s.voidedAt ? "void" : s.kind === "gear" && s.season && s.season < new Date().getFullYear() ? "expired"
+      const status = s.voidedAt ? "void" : s.kind === "gear" && s.season && !s.seasonless && s.season < new Date().getFullYear() ? "expired"
         : s.kind === "car" && atEvent && isoDay(0) > isoDay(1, atEvent.ends_on) ? "expired" : "valid";
       const sh = s.kind === "car" ? (c.bundle.techSheets || []).find((x) => (s.techSheet && x.id === s.techSheet) || x.carNumber === (s.snapshot || {}).carNumber) : null;
       const acc = (ui.accreditations || []).find((a) => a.email === s.issuedBy && a.body_id === s.body);
@@ -2677,6 +2677,12 @@
       h("div", { class: "account-card-title" }, ["Annual tech stickers"]),
       desc("The gear competitors can apply for an annual (season) sticker for from PassTech" + (discs.length ? ", per discipline" : "") + ". Nothing ticked: no annual stickers" + (discs.length ? " in that discipline" : "") + ", and PassTech doesn't offer " + bodyCode(b.id) + (discs.length ? " for it" : "") + ". "
         + "An annual car sticker comes from an annual inspection on the tech sheet picked below: competitors can pre-fill it from PassTech, and the scrutineers inspect and sign it in Annual safety stickers."),
+      // Seasonless stickers (System admins): they only record the certifications on the gear's tags.
+      h("div", { class: "account-checks" }, [h("label", {}, [
+        h("input", { type: "checkbox", checked: !!b.stickers_seasonless, disabled: !ui.roles.admin, onchange: async (e) => {
+          try { await rpc("save_sticker_seasonless", { p_body: b.id, p_value: e.target.checked }); b.stickers_seasonless = e.target.checked; render(); }
+          catch (err) { say("error", err.message || String(err)); render(); } } }),
+        " Gear stickers have no season: they record the certifications on the gear's tags and never expire (whoever scans one checks them against their own body's rules)"])]),
       rows.map((row) => {
         const gear = row.obj.annual_sticker_gear || [];
         const editable = canEdit(row.key);
@@ -3287,8 +3293,11 @@
     try { a.viewing.data = await rpc("sticker_view", { p_code: code }); } catch (e) { a.viewing.data = null; fail(e); }
     render();
   }
-  // "SCCNH Autocross 2026" / "ARA 2026".
-  const annualLabel = (a) => [bodyName(a.body), annualDiscName(a), a.season].filter(Boolean).join(" ");
+  // A body whose gear stickers have no season: they only record the certifications on the gear's tags
+  // (e.g. PassTech's) -- never expire, and whoever scans one judges them against their own rules.
+  const seasonlessBody = (id) => !!((ui.bodies || []).find((b) => b.id === id) || {}).stickers_seasonless;
+  // "SCCNH Autocross 2026" / "ARA 2026" / "PassTech" (no season).
+  const annualLabel = (a) => [bodyName(a.body), annualDiscName(a), seasonlessBody(a.body) ? null : a.season].filter(Boolean).join(" ");
   // A new item to fill in: a gear type alone, or from a sticker / an application.
   function annualItem(category, from) {
     const a = ui.annual;
@@ -3310,7 +3319,7 @@
         if (d.kind !== "gear") return say("fail", "Sticker " + Stickers.fmtCode(code) + " isn't a gear sticker.");
         const snap = d.snapshot || {};
         annualItem(snap.category, { gear: Object.assign({}, snap.gear, { category: snap.category }), photos: snap.photos, owner: snap.driver,
-          declared: "From sticker " + Stickers.fmtCode(d.code) + " (" + (d.bodyName || d.body) + " " + (d.season || "") + ", " + d.status + ")", replaces: d.code });
+          declared: "From sticker " + Stickers.fmtCode(d.code) + " (" + (d.bodyName || d.body) + (d.seasonless ? "" : " " + (d.season || "")) + ", " + d.status + ")", replaces: d.code });
       } catch (e) { fail(e); }
     });
   }
@@ -3347,8 +3356,10 @@
       // (Body-wide staff also see the stickers from before the body had disciplines.)
       discs ? field("Discipline", select([["", "— pick —"]].concat(discs.map((d) => [d.id, d.name]),
         canIn(a.body, null, "issue_annual_stickers") ? [[NO_DISCIPLINE, "No discipline (older stickers)"]] : []), a.discipline, (v) => { a.discipline = v; a.item = null; a.carSheet = null; a.applications = a.stickers = null; loadAnnual(); render(); })) : null,
-      field("Season", input({ type: "number", value: String(a.season), min: "2020", max: "2100" }, (v) => { const y = parseInt(v, 10); if (y > 2000) { a.season = y; a.stickers = null; loadAnnual(); } })),
+      a.body && seasonlessBody(a.body) ? null
+        : field("Season", input({ type: "number", value: String(a.season), min: "2020", max: "2100" }, (v) => { const y = parseInt(v, 10); if (y > 2000) { a.season = y; a.stickers = null; loadAnnual(); } })),
     ])];
+    if (a.body && seasonlessBody(a.body)) out.push(desc(bodyName(a.body) + "'s stickers have no season: they record the certifications on the gear's tags, and never expire. Whoever scans one checks those certifications against their own body's rules."));
     if (!a.body) return out.concat(desc("Pick the body you're issuing stickers for."));
     if (!annualReady(a)) return out.concat(desc(discs && !discs.length ? "You don't issue annual stickers for any of " + bodyName(a.body) + "'s disciplines." : "Pick the discipline: its stickers are good for its events."));
     const apps = a.applications || [];
@@ -3361,7 +3372,7 @@
     if (!gear && a.tab !== "cars" && a.tab !== "issued") a.tab = carTpl ? "cars" : "issued";
     if (a.tab === "cars" && !carTpl) a.tab = gear ? "issue" : "issued";
     out.push(tabs([].concat(older || !gear ? [] : [["issue", "Issue a sticker"]], gear ? [["applications", "Applications (" + apps.length + ")"]] : [],
-      [["issued", (a.allSeasons ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]],
+      [["issued", (a.allSeasons || seasonlessBody(a.body) ? "Issued" : "Issued for " + a.season) + " (" + (a.stickers || []).length + ")"]],
       carTpl ? [["cars", "Cars (" + (a.cars || []).length + ")"]] : []), a.tab, (t) => { a.tab = t; render(); }));
     if (!gear && !carTpl && canIn(a.body, annualDisc(a) || null, "issue_annual_car_stickers") && !older)
       out.push(desc(annualLabel(a) + " has no annual car inspection sheet yet: its technical director picks one in Sanctioning bodies › " + bodyName(a.body) + " › Annual stickers."));
@@ -3373,7 +3384,7 @@
           : "Competitors apply from My gear in PassTech, with their gear's details and photos. Check the item in hand, then issue its sticker -- or decline, saying why."),
         apps.length ? apps.map((x) => h("div", { class: "account-entry" }, [
           h("span", { class: "account-entry-main" }, [h("strong", {}, [Stickers.GEAR_LABEL[x.category] || x.category]),
-            h("span", { class: "element-desc" }, [" · " + [x.owner, x.submittedBy, "season " + x.season, (x.photos || []).length + " photos", "sent " + fmtDate(x.submittedAt)].filter(Boolean).join(" · ")])]),
+            h("span", { class: "element-desc" }, [" · " + [x.owner, x.submittedBy, seasonlessBody(a.body) ? null : "season " + x.season, (x.photos || []).length + " photos", "sent " + fmtDate(x.submittedAt)].filter(Boolean).join(" · ")])]),
           older ? null : btn("Review and issue", () => annualItem(x.category, { gear: x.gear, photos: x.photos, owner: x.owner, declared: "Application from " + (x.owner || x.submittedBy), application: x.id }), "small"),
           btn("Decline", () => annualDecline(x), "small secondary"),
         ])) : desc("No pending applications."),
@@ -3392,7 +3403,7 @@
           field("Search", input({ value: a.search || "", "data-id": "annual-search", placeholder: "code, owner, who submitted, standard, serial number…" }, (v) => { a.search = v; render(); restoreFocus("annual-search"); })),
           field("Gear", select([["", "All gear"]].concat(Stickers.GEAR.map((c) => [c, Stickers.GEAR_LABEL[c]])), a.type || "", (v) => { a.type = v; render(); })),
         ]),
-        h("div", { class: "account-checks" }, [h("label", {}, [h("input", { type: "checkbox", checked: !!a.allSeasons, onchange: (e) => { a.allSeasons = e.target.checked; a.stickers = null; loadAnnual(); } }), " Every season, not only " + a.season])]),
+        seasonlessBody(a.body) ? null : h("div", { class: "account-checks" }, [h("label", {}, [h("input", { type: "checkbox", checked: !!a.allSeasons, onchange: (e) => { a.allSeasons = e.target.checked; a.stickers = null; loadAnnual(); } }), " Every season, not only " + a.season])]),
         all.length && (words.length || a.type) ? desc(list.length + " of " + all.length + " match.") : null,
         list.length ? list.map((s) => {
           const snap = s.snapshot || {};
