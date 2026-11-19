@@ -1,4 +1,4 @@
-﻿// The Scrutineering user manual's screenshots, taken in headless Chrome from
+// The Scrutineering user manual's screenshots, taken in headless Chrome from
 // the site served at http://localhost:5002 (npx serve of this repo), with
 // demo-server.js standing in for the server (a made-up club and event):
 //   rm -r profile out; node driver.mjs screenshots.mjs 1280 900
@@ -81,10 +81,16 @@ export default async function (a) {
   await a.eval(mark(card("/stickers$/"), "shot-search"));
   await a.shot("24-annual-search", "#shot-search");
 
-  // ---- Event admin ----
+  // ---- Digital logbooks: its two cards ----
   await a.go(SITE);
   await a.sleep(1200);
   await a.eval(mode("/^3/"));
+  await a.shot("25-logbooks", PANEL);
+
+  // ---- Event admin ----
+  await a.go(SITE);
+  await a.sleep(1200);
+  await a.eval(mode("/^4/"));
   await a.eval(`${click("/^Create new event$/", ".account-panel")}`);
   await a.eval(`${select("/^Discipline/", "rally")}`);
   await a.shot("30-admin-events", PANEL);
@@ -118,7 +124,7 @@ export default async function (a) {
   // ---- Sanctioning bodies, scrutineers and tech sheets ----
   await a.go(SITE);
   await a.sleep(1200);
-  await a.eval(mode("/^4/"));
+  await a.eval(mode("/^5/"));
   await a.shot("40-bodies", PANEL);
   await a.eval(`${click("/^Demo Rally Club/", ".account-panel")} window.scrollTo(0, 0);`);
   await a.shot("41-body", PANEL);

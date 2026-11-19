@@ -2,12 +2,11 @@
 
 ## Getting started
 
-Scrutineering (scrutineering.frogracing.us) is where scrutineers, chief scrutineers and technical directors run tech inspection: each car's tech sheet at an event, its sign-off and its tech stickers, the season's annual safety stickers, the events themselves, and each sanctioning body's scrutineers and tech sheets.
+Scrutineering (scrutineering.frogracing.us) is where scrutineers, chief scrutineers and technical directors run tech inspection: each car's tech sheet at an event, its sign-off and its tech stickers, the season's annual safety stickers, the cars' digital logbooks, the events themselves, and each sanctioning body's scrutineers and tech sheets.
 
-It works hand in hand with two other Frog Racing tools:
+It works hand in hand with **PassTech** (passtech.frogracing.us), the competitors' side: they keep their gear in My gear, pre-fill their car's tech sheet with it (with photos) and submit it to the event, and apply for annual stickers. What they submit shows up here, ready to check.
 
-- **PassTech** (passtech.frogracing.us), the competitors' side: they keep their gear in My gear, pre-fill their car's tech sheet with it (with photos) and submit it to the event, and apply for annual stickers. What they submit shows up here, ready to check.
-- **Digital logbooks** (logbook.frogracing.us): the cars' logbooks. Passing a car that has a digital logbook records the inspection in its logbook.
+The cars' **digital logbooks** are here too (see Digital logbooks): passing a car that has one records the inspection in its logbook. The Digital logbooks site (logbook.frogracing.us) still works, for owners and for links to it.
 
 ### Signing in
 
@@ -15,7 +14,7 @@ There's no password. Enter your email address and press **Email me a sign-in lin
 
 ![The sign-in screen.](02-signin.png)
 
-Only people with a scrutineer accreditation can use the site: ask your sanctioning body's technical director to add you (see Sanctioning bodies, scrutineers and tech sheets). Signed in without one, the site says so.
+Anyone can sign in to prepare or open a car's digital logbook. Everything else is for people with a scrutineer accreditation: ask your sanctioning body's technical director to add you (see Sanctioning bodies, scrutineers and tech sheets).
 
 ### The home screen
 
@@ -25,6 +24,7 @@ Once signed in, the home screen shows one card per mode you can use, numbered li
 |---|---|---|
 | Scrutineering | every accredited scrutineer | the events you're on the staff of: each car's tech sheet, its sign-off and stickers |
 | Annual safety stickers | scrutineers allowed to issue them | season stickers for helmets, HANS, seats, fire extinguishers and suppression systems, outside an event |
+| Digital logbooks | everyone | creating a car's logbook, and the logbook library |
 | Event admin | technical directors | creating events, their staff, tech sheets and competitors |
 | Sanctioning bodies, scrutineers and tech sheets | technical directors, and scrutineers allowed to manage scrutineers | the body's disciplines, scrutineers, licenses, permissions and tech sheets |
 
@@ -54,6 +54,8 @@ Click an event to open it. Under its name and dates, the cars are grouped by whe
 Each car shows its number, its crew, the car and its logbook number, and its class. Badges tell you more: **team sheet** when the team pre-filled its sheet in PassTech, how many lines are checked ("18/57 checked"), and **open: (email)** when another scrutineer has the car's sheet open on their device. **Find a car** filters the lists by car number, driver, car or logbook number.
 
 ![An event's cars, grouped by where they stand.](11-event.png)
+
+**Download this event's logbooks to this device** saves the logbooks of the event's cars on your device, to open them where there's no signal.
 
 The chief scrutineer can also add a late entry from here with **Add competitor** (see Event admin). Teams that submitted a sheet for a car number that isn't on the competitor list yet are listed above the cars, so the chief scrutineer can add them.
 
@@ -172,6 +174,10 @@ On **Issue a sticker**, pick the gear: Helmet, HANS / head & neck restraint, Sea
 
 **Read last season's sticker** scans the QR code of the sticker the item already has: its details and photos fill the new one in. Last season's sticker simply expires with its season; a sticker of the same season (one that's damaged, say) is voided, replaced by the new one.
 
+### Stickers without a season
+
+Some bodies' stickers have no season: PassTech by Frog Racing's, for instance. Such a sticker only records the certifications on the gear's tags; it never expires, and whoever scans it checks those certifications against the rules of the body they're inspecting for (PassTech's Scrutineer mode does it for them). For those bodies there's no Season to pick, and the issued stickers are all listed together. A new sticker for an item replaces its old one, whatever year that was issued.
+
 ### Applications from PassTech
 
 Competitors can apply for an annual sticker from My gear in PassTech, with their gear's details and photos. The **Applications** tab lists the ones waiting, with who sent them and when.
@@ -199,6 +205,17 @@ Every sticker's QR code opens this site on the sticker: anyone can scan it with 
 A logbook sticker opens the car's logbook page instead.
 
 ![A scanned helmet sticker, as a scrutineer sees it.](50-sticker.png)
+
+## Digital logbooks
+
+A car's digital logbook records its roll cage, as inspected, and the events it took part in. The **Digital logbooks** mode offers two things:
+
+- **Create a new logbook**: start one blank, from a cage template, or from a file the owner made in the Rollcage assessment tool; record the cage and the logbook information; then a scrutineer allowed to issue logbooks issues it, after inspecting the car.
+- **Logbook library**: the logbooks on this device, the cars in **My garage** (those whose logbook lists your email as the owner), and, for scrutineers, **Find a logbook online**. Open one to view its roll cage and its event log, save it to this device, or export it to a file.
+
+The navigation trail shows **Home › Digital logbooks** and the part you're in. The Digital logbooks user manual (logbook-user-manual.html, on this site) covers them in detail.
+
+![Digital logbooks: a new logbook, or the library.](25-logbooks.png)
 
 ## Event admin
 
@@ -249,9 +266,13 @@ Then **Import** the competitors.
 
 ## Sanctioning bodies, scrutineers and tech sheets
 
-This mode is for technical directors, and for scrutineers allowed to manage scrutineers. It lists the bodies you manage; click one to open it, on its **Scrutineers** tab (technical directors also get a **Tech sheets** tab).
+This mode is for technical directors, and for scrutineers allowed to manage scrutineers. It lists the bodies you manage; click one to open it, on its **Scrutineers** tab (technical directors also get **Tech sheets** and **Annual stickers** tabs).
 
 ![The bodies you manage.](40-bodies.png)
+
+### Annual stickers
+
+Technical directors also get an **Annual stickers** tab: which gear competitors can apply for an annual sticker for from PassTech (per discipline, for a body that has them), and the tech sheet used for annual car inspections. Frog Racing can also mark a body's gear stickers as having no season (see Stickers without a season).
 
 ### Disciplines
 
