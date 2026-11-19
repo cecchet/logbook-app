@@ -284,7 +284,7 @@ The table lists the body's technical directors and scrutineers: their discipline
 
 ![A body's disciplines and scrutineers.](41-body.png)
 
-**Add a scrutineer** with their name and email, the discipline they're accredited for, their license number and expiry date (optional) and scrutineer code. They sign in with that email.
+**Add a scrutineer** with their name and email, the disciplines they're accredited for (one, several, or all of them), their license number and expiry date (optional) and scrutineer code. Each discipline is its own accreditation, with its own permissions: a scrutineer can, say, issue annual stickers in Rally but only sign off tech sheets in Autocross. They sign in with that email.
 
 ![Adding a scrutineer.](42-body-add.png)
 
@@ -292,21 +292,24 @@ On each row: **Renew** sets the license's new expiry date (or none); **Permissio
 
 ### Permissions
 
-A technical director holds every permission. A scrutineer gets the standard five unless you choose otherwise:
+A technical director holds every permission. A scrutineer gets the standard five unless you choose otherwise. The permissions come in three groups:
 
-| Permission | Lets them | Standard scrutineer |
-|---|---|---|
-| Sign off tech sheets | finish a car's sheet as Passed or Failed | yes |
-| Issue annual stickers | use Annual safety stickers | yes |
-| Void stickers | void a sticker | yes |
-| Issue logbooks | issue a car's digital logbook | yes |
-| Add logbook entries | record events in a logbook | yes |
-| Add scrutineers | add scrutineers to the body | no |
-| Renew licenses / disable | renew licenses, disable and re-enable scrutineers | no |
-| Edit permissions | change scrutineers' permissions | no |
-| Delete scrutineers | delete scrutineers | no |
+| Group | Permission | Lets them | Standard scrutineer |
+|---|---|---|---|
+| Scrutineer management | Add scrutineers | add scrutineers to the body | no |
+| | Delete scrutineers | delete scrutineers | no |
+| | Renew licenses / disable | renew licenses, disable and re-enable scrutineers | no |
+| | Edit permissions | change scrutineers' permissions | no |
+| Annual stickers | Issue annual gear stickers | issue season stickers for helmets, HANS, seats, fire extinguishers and suppression systems | yes |
+| | Issue annual car stickers | do annual car inspections and issue their stickers | no |
+| | Void stickers | void a sticker | yes |
+| Tech inspection | Sign off tech sheets | finish a car's sheet as Passed or Failed | yes |
+| | Add logbook entries | record events in a logbook | yes |
+| | Issue logbooks | issue a car's digital logbook | yes |
 
-You can only grant the permissions you hold yourself, in that discipline; the others can't be ticked. **Standard scrutineer** puts a scrutineer back on the standard five.
+Annual car stickers take their own training, so they're never a standard permission: tick them for the scrutineers who do annual car inspections. Either annual sticker permission gives access to Annual safety stickers.
+
+The permissions are set per discipline: a scrutineer accredited for several disciplines has a set for each. The table's **Permissions** column shows "standard (5)" or how many they hold. You can only grant the permissions you hold yourself, in that discipline; the others can't be ticked. **Standard scrutineer** puts a scrutineer back on the standard five.
 
 ![Editing a scrutineer's permissions.](43-body-permissions.png)
 
