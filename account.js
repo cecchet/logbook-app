@@ -2450,7 +2450,7 @@
     if (ui.techSheetPick && ui.techSheetPick.entry.event_id === ev.id) return out.concat(renderTechSheetPick());
     if (ui.techSheet && ui.techSheet.entry.event_id === ev.id) return out.concat(renderTechSheet());
     const withLogbook = b.entries.filter((x) => x.logbook);
-    if (withLogbook.length && SITE === "logbook") {
+    if (withLogbook.length) {
       out.push(actions(btn("Download this event's logbooks to this device (" + withLogbook.length + ")",
         () => downloadMany(withLogbook.map((x) => x.logbook.id), "Downloading"), "small secondary")));
     }
@@ -3462,6 +3462,8 @@
     library: { title: "Logbook library", text: "Logbooks on this device and online: search, open, download, sync, delete." },
     event: { title: "Scrutineering", text: "At an event: each car's tech sheet, its inspection and sign-off, and what's left to inspect." },
     events: { title: "Event admin", text: "Organize events: create them, their staff and tech sheets, and their competitors (MotorsportReg import)." },
+    // The Scrutineering site's way to the two above: its own page with their cards.
+    logbooks: { title: "Digital logbooks", text: "A car's logbook: create a new one, or open one from the logbook library -- on this device and online." },
     annual: { title: "Annual safety stickers", text: "Season stickers for helmets, HANS, seats, fire extinguishers and suppression systems -- outside an event, from a competitor's application or last season's sticker." },
     bodies: { title: "Sanctioning bodies, scrutineers and tech sheets", text: "Technical directors, scrutineers, their licenses and permissions, and each body's tech sheets." },
   };
@@ -3479,7 +3481,7 @@
     // Sanctioning bodies: organizers, and whoever manages a body's scrutineers.
     const manager = organizer || MANAGE.some(canAnywhere);
     return SITE === "scrutineering"
-      ? (staff ? ["event"] : []).concat(ANNUAL_PERMS.some(canAnywhere) ? ["annual"] : [], organizer ? ["events"] : [], manager ? ["bodies"] : [])
+      ? (staff ? ["event"] : []).concat(ANNUAL_PERMS.some(canAnywhere) ? ["annual"] : [], ["logbooks"], organizer ? ["events"] : [], manager ? ["bodies"] : [])
       : ["create", "library"].concat(manager ? ["bodies"] : []);
   }
   // The home screen shows the modes only; Event and Admin modes don't use
@@ -3494,22 +3496,24 @@
     ui.mode = mode; ui.message = null; render();
     holder.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  function renderHome() {
+  // One card per mode, numbered.
+  function modeCards(modes) {
     const open = ui.events.filter((e) => e.open && e.myRole).length;
-    const badge = { library: ui.garage.length ? ui.garage.length + " in your garage" : null, event: open ? open + " open now" : null };
-    const modes = availableModes();
+    const garage = ui.garage.length ? ui.garage.length + " in your garage" : null;
+    const badge = { library: garage, logbooks: garage, event: open ? open + " open now" : null };
+    return h("div", { class: "account-modes" }, modes.map((m, i) => h("button", { type: "button", class: "account-mode", onclick: () => goMode(m) }, [
+      h("span", { class: "account-mode-number" }, [String(i + 1)]),
+      h("span", { class: "account-mode-title" }, [MODES[m].title]),
+      h("span", { class: "account-mode-text" }, [MODES[m].text]),
+      badge[m] ? h("span", { class: "badge info" }, [badge[m]]) : null,
+    ])));
+  }
+  function renderHome() {
     const staff = ui.roles && ui.roles.accreditations.length > 0;
-    // The other site, for who uses it: scrutineers from here; anyone for logbooks from there.
-    const link = SITE === "logbook"
-      ? (staff ? ["Scrutineering and event admin are on the Scrutineering site", "Open Scrutineering"] : null)
-      : ["Creating and opening logbooks is on the Digital logbooks site", "Open Digital logbooks"];
+    // Scrutineers on the Digital logbooks site: everything is on the Scrutineering site too.
+    const link = SITE === "logbook" && staff ? ["Scrutineering, event admin and logbooks are all on the Scrutineering site", "Open Scrutineering"] : null;
     return [
-      modes.length ? h("div", { class: "account-modes" }, modes.map((m, i) => h("button", { type: "button", class: "account-mode", onclick: () => goMode(m) }, [
-        h("span", { class: "account-mode-number" }, [String(i + 1)]),
-        h("span", { class: "account-mode-title" }, [MODES[m].title]),
-        h("span", { class: "account-mode-text" }, [MODES[m].text]),
-        badge[m] ? h("span", { class: "badge info" }, [badge[m]]) : null,
-      ]))) : desc("This site is for scrutineers and event organizers: ask your sanctioning body's technical director for a scrutineer accreditation."),
+      modeCards(availableModes()),
       link ? h("p", { class: "account-other-site" }, [link[0] + " -- ", h("a", { href: otherSite() }, [link[1] + " →"])]) : null,
     ];
   }
@@ -3527,6 +3531,7 @@
       library: () => goMode("library"),
       annual: () => { if (ui.annual) { ui.annual.carSheet = null; ui.annual.item = null; } render(); },
     }[m];
+    if (SITE === "scrutineering" && (m === "create" || m === "library")) items.push([MODES.logbooks.title, () => goMode("logbooks")]);
     items.push([MODE_CRUMBS[m] || MODES[m].title, toList || null]);
     if (m === "bodies" && ui.body) {
       items.push([bodyCode(ui.body), () => { ui.templateEdit = null; ui.bodyTab = "scrutineers"; ui.show = {}; render(); }]);
@@ -3619,6 +3624,7 @@
   }
   function renderModeView(m) {
     const out = [modeHeader(m)];
+    if (m === "logbooks") out.push(modeCards(["create", "library"]));
     if (m === "create") out.push(renderCreate());
     if (m === "library") out.push(renderLibrary());
     // An event open: its page; otherwise the list.
@@ -3661,7 +3667,9 @@
       ]));
       if (r) {
         (r.expired || []).forEach((x) => children.push(h("p", { class: "verdict warn" }, ["Your " + x.bodyName + " license expired on " + fmtDate(x.licenseExpires) + ": ask your technical director to renew it."])));
-        if (!availableModes().includes(ui.mode)) ui.mode = "home";
+        // (On the Scrutineering site, creating and the library sit under Digital logbooks.)
+        const modes = availableModes();
+        if (!modes.concat(modes.includes("logbooks") ? ["create", "library"] : []).includes(ui.mode)) ui.mode = "home";
         const home = ui.mode === "home" || !app;
         children.push(home ? renderHome() : renderModeView(ui.mode));
       }
