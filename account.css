@@ -75,6 +75,10 @@ a.account-crumb:hover { text-decoration: underline; }
 .account-more { margin-top: 10px; font-size: 0.9rem; }
 .account-more summary { cursor: pointer; color: var(--muted); }
 .account-busy { margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: var(--info-bg); color: var(--accent); font-size: 0.85rem; }
+/* A logbook being saved to this device: at the top of On this device, with its progress. */
+.account-busy-card { border-color: var(--accent); background: var(--info-bg); }
+.account-busy-card .account-card-title::before { content: ""; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 8px; border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; vertical-align: -1px; animation: account-spin 0.8s linear infinite; }
+@keyframes account-spin { to { transform: rotate(360deg); } }
 /* The public link's photos. */
 .account-photos { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
 .account-photos img { width: 140px; height: 100px; object-fit: cover; border-radius: 6px; display: block; }

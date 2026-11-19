@@ -354,7 +354,8 @@
   }
   // The online photos as local ones: a photo already on this device (same
   // hash) is reused, the others are downloaded into it.
-  async function photosToLocal(full, existing) {
+  async function photosToLocal(full, existing, added) {
+    const put = async (record) => { const id = await app.putPhoto(record); if (added) added.push(id); return id; };
     const known = new Map();
     (existing && existing.pictures || []).forEach((p) => { if (p.sha256) known.set(p.sha256, p); });
     const vpKnown = new Map();
@@ -375,7 +376,7 @@
         if (have) { pictures.push(Object.assign({}, have, { category: sp.category, elements: sp.elements || [] })); continue; }
         const photo = await downloadDataUrl(sp.sha256);
         const screenshot = sp.screenshotSha256 ? await downloadDataUrl(sp.screenshotSha256).catch(() => null) : null;
-        const id = await app.putPhoto({ photo, screenshot });
+        const id = await put({ photo, screenshot });
         pictures.push(Object.assign({ id, sha256: sp.sha256, category: sp.category, elements: sp.elements || [], aiSuggestions: [], hasScreenshot: !!screenshot },
           sp.screenshotSha256 && screenshot ? { screenshotSha256: sp.screenshotSha256 } : {}));
       }
@@ -387,7 +388,7 @@
         if (!sv || !sv.sha256) continue;
         step();
         const have = vpKnown.get(sv.sha256);
-        vehiclePhotos[slot] = have || { id: await app.putPhoto({ photo: await downloadDataUrl(sv.sha256) }), sha256: sv.sha256 };
+        vehiclePhotos[slot] = have || { id: await put({ photo: await downloadDataUrl(sv.sha256) }), sha256: sv.sha256 };
       }
     }
     // The paper logbook's pages.
@@ -399,14 +400,14 @@
       for (const sp of withPaper.paperPages) {
         if (!sp || !sp.sha256) continue;
         ui.busy = "Downloading the paper logbook pages…"; render();
-        paperLogbookPhotos.push(paperKnown.get(sp.sha256) || { id: await app.putPhoto({ photo: await downloadDataUrl(sp.sha256) }), sha256: sp.sha256 });
+        paperLogbookPhotos.push(paperKnown.get(sp.sha256) || { id: await put({ photo: await downloadDataUrl(sp.sha256) }), sha256: sp.sha256 });
       }
     }
     ui.busy = null;
     return { pictures, vehiclePhotos, paperLogbookPhotos };
   }
 
-  async function toLocal(full, existing) {
+  async function toLocal(full, existing, added) {
     const lb = full.logbook;
     const cage = serverCage(full.records);
     const answers = Object.assign({}, cage.answers || {});
@@ -427,7 +428,7 @@
     const uploadedIds = new Set((issueBody.pastEvents || []).map((e) => e.localId));
     const keptEvents = existing ? (existing.events || []).filter((e) => !String(e.id).startsWith("srv_") && !uploadedIds.has(e.id)) : [];
     const name = (existing && existing.vehicle && existing.vehicle.name) || lb.car_name || [lb.year, lb.make, lb.model].filter(Boolean).join(" ") || lb.digital_number;
-    const { pictures, vehiclePhotos, paperLogbookPhotos } = await photosToLocal(full, existing);
+    const { pictures, vehiclePhotos, paperLogbookPhotos } = await photosToLocal(full, existing, added);
     const ex = issueBody.existingLogbook;
     const local = {
       sessionId: existing ? existing.sessionId : "srv_" + lb.id,
@@ -466,8 +467,12 @@
     } catch (e) { fail(e); }
   }
   // Download (or refresh) a logbook, with its photos, into this device's
-  // library. quiet: no message, no confirmation.
-  async function download(id, quiet) {
+  // library. quiet: no message, no confirmation (a batch: a failure is thrown).
+  // One at a time: while it runs (ui.downloading), the Save / Refresh buttons
+  // are off and "On this device" shows its progress. If it fails, the photos
+  // it stored are removed again and this device's copy is left as it was.
+  async function download(id, quiet, number) {
+    if (ui.downloading) return false;
     const existing = localFor(id);
     if (existing && openNow(existing) && app.isDirty()) {
       if (!quiet) say("fail", "Save or discard the changes to the logbook open below first.");
@@ -475,13 +480,32 @@
     }
     if (existing && locallyChanged(existing) && !quiet &&
         !confirm("\"" + existing.vehicle.name + "\" has changes on this device that aren't online. Refreshing replaces them with the online logbook. Refresh anyway?")) return false;
+    const added = [];
+    ui.downloading = { id, number: number || (existing && existing.vehicle.server && existing.vehicle.server.digitalNumber) || null, refresh: !!existing };
+    ui.busy = "Reading the logbook…";
+    render();
     try {
       const full = await rpc("logbook_full", { p_id: id });
-      app.saveLocal(await toLocal(full, existing));
+      ui.downloading.number = full.logbook.digital_number;
+      app.saveLocal(await toLocal(full, existing, added));
       ui.heads[id] = { id, lastSeq: lastSeq(full), status: full.logbook.status };
       if (!quiet) say("pass", (existing ? "Refreshed " : "Saved to this device: ") + full.logbook.digital_number + ".");
       return true;
-    } finally { ui.busy = null; }
+    } catch (e) {
+      added.forEach((photoId) => { if (app.deletePhoto) app.deletePhoto(photoId); });
+      if (quiet) throw e;
+      const what = ui.downloading.number || "the logbook";
+      say("fail", "Couldn't " + (existing ? "refresh " + what + " on" : "save " + what + " to") + " this device (" + ((e && e.message) || e) + "). "
+        + (existing ? "Its copy here is unchanged" : "Nothing was saved") + ": check the connection and try again.");
+      return false;
+    } finally { ui.busy = null; ui.downloading = null; render(); }
+  }
+  // Save to this device / Refresh: off while a download runs (that one says so).
+  function saveButton(id, label, cls, number) {
+    if (!ui.downloading) return btn(label, () => download(id, false, number).catch(fail), cls);
+    const mine = ui.downloading.id === id;
+    return h("button", { type: "button", class: "btn " + (cls || ""), disabled: true, "data-icon": ICONS[label],
+      title: mine ? "" : "Another logbook is being saved to this device" }, [mine ? (ui.downloading.refresh ? "Refreshing…" : "Saving to this device…") : label]);
   }
   async function downloadMany(ids, label) {
     let done = 0, skipped = 0;
@@ -581,7 +605,11 @@
         outOfDate.length ? btn("Refresh all (" + outOfDate.length + ")", () => downloadMany(outOfDate, "Refreshing"), "small") : null,
       ),
       all.length > 3 ? h("div", { class: "field-row" }, [field("Search this device", input({ value: ui.deviceSearch, "data-id": "device-search", placeholder: "name, car, VIN, owner, logbook number…" }, (v) => { ui.deviceSearch = v; render(); restoreFocus("device-search"); }))]) : null,
-      all.length ? (rows.length ? rows : desc("No logbook on this device matches.")) : desc("No logbooks on this device yet."),
+      ui.downloading ? h("div", { class: "account-card account-busy-card", role: "status" }, [
+        h("div", { class: "account-card-title" }, [(ui.downloading.refresh ? "Refreshing " : "Saving ") + (ui.downloading.number || "a logbook") + (ui.downloading.refresh ? " on" : " to") + " this device…"]),
+        desc((ui.busy || "Working…") + " Keep this page open until it's done."),
+      ]) : null,
+      all.length ? (rows.length ? rows : desc("No logbook on this device matches.")) : ui.downloading ? null : desc("No logbooks on this device yet."),
     ];
   }
   // Re-rendering replaces the inputs: keep typing in the one that had focus.
@@ -599,7 +627,7 @@
       h("div", { class: "account-card-title" }, [vehicleLine(car.vehicle) || "Car", " · ", car.digitalNumber]),
       desc([car.vin ? "VIN " + car.vin : "No VIN", bodyName(car.body) + (car.bodyNumbers[car.body] ? " logbook " + car.bodyNumbers[car.body] : ""), car.status].join(" · ")),
       actions(
-        app ? btn(localFor(car.id) ? "Refresh on this device" : "Save to this device", () => download(car.id).catch(fail), "small") : null,
+        app ? saveButton(car.id, localFor(car.id) ? "Refresh on this device" : "Save to this device", "small", car.digitalNumber) : null,
         app && localFor(car.id) ? btn("Open", () => app.openLocal(localFor(car.id).sessionId), "small secondary") : null,
         app ? btn("Export to a file", () => exportCar(car).catch(fail), "small secondary") : null,
         car.publicEnabled ? btn("Copy public link", () => copy(publicUrl(car.publicToken)), "small secondary") : h("span", { class: "element-desc" }, ["Public link off"]),
@@ -928,7 +956,7 @@
         s && id ? btn("View the event log", () => app.openLocal(s.sessionId, "events"), "small secondary") : null,
         id ? recordHistoryButton(id) : null,
         id && staff ? btn("QR sticker", () => logbookSticker(id), "small secondary") : null,
-        id && app ? btn(s ? "Refresh" : "Save to this device", () => download(id).catch(fail), s && newer && !changed ? "small" : "small secondary") : null,
+        id && app ? saveButton(id, s ? "Refresh" : "Save to this device", s && newer && !changed ? "small" : "small secondary", x.number) : null,
         s && id && changed && staff ? btn("Upload changes", () => uploadChanges(s), "small") : null,
         s && !id && staff ? btn("Issue online", () => issueOnline(s), "small") : null,
         app ? h("button", { type: "button", class: "btn small secondary", "data-icon": ICONS["Export to a file"], title: "The logbook as a file, with its pictures: the competitor can import it into PassTech or the Rollcage assessment tool",
