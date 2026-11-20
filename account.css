@@ -359,3 +359,7 @@ a.account-crumb:hover { text-decoration: underline; }
 .account-status-off { color: var(--fail); font-weight: 600; }
 .account-status-mixed { color: var(--warn); font-weight: 600; }
 .account-perm-block { margin: 8px 0; padding: 6px 0 2px; border-top: 1px solid var(--border); }
+
+/* A roll cage design's history (logbook requests, a logbook that kept it). */
+.account-design-history { margin: 8px 0 0; padding-left: 20px; font-size: 0.88rem; }
+.account-design-history li { margin: 2px 0; }

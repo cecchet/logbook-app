@@ -795,7 +795,13 @@
       const linked = withShas(rc, photos.shaById);
       app.linkCurrent({ id: ui.issued.id, digitalNumber: ui.issued.digitalNumber, lastSeq: 1, fingerprint: fingerprint(syncKey(linked)), syncedAt: new Date().toISOString(), status: "active", issuingBody: rc.vehicle.org,
         issuedAt: new Date().toISOString(), issuedBy: ((ui.roles.accreditations.find((a) => a.body === rc.vehicle.org) || {}).name) || me(), ownerEmail }, photos.shaById);
-      const done = (existingBook ? "Existing logbook added as " : "Logbook ") + ui.issued.digitalNumber + (existingBook ? "" : " issued") + (photos.pictures.length || photos.paperPages.length ? " with its photos" : "") + (pastEvents.length ? " and past events" : "") + ". ";
+      let done = (existingBook ? "Existing logbook added as " : "Logbook ") + ui.issued.digitalNumber + (existingBook ? "" : " issued") + (photos.pictures.length || photos.paperPages.length ? " with its photos" : "") + (pastEvents.length ? " and past events" : "") + ". ";
+      // From a design's logbook request: that request is now complete.
+      const req = rc.vehicle && rc.vehicle.logbookRequest;
+      if (req) {
+        try { await rpc("complete_logbook_request", { p_id: req.id, p_logbook: ui.issued.id }); done += "The logbook request for \u201c" + req.title + "\u201d is complete. "; ui.designRequests = undefined; }
+        catch (e) { done += "(The logbook request couldn't be marked complete: " + e.message + ".) "; }
+      }
       say("pass", done + "Emailing the owner (" + ownerEmail + ")…");
       notifyOwner(ui.issued.id, "issued").then(
         () => say("pass", done + "The owner was emailed at " + ownerEmail + " -- they sign in with that address to see it."),
@@ -955,6 +961,7 @@
         s ? btn("View the rollcage", () => app.openLocal(s.sessionId, "rollcage"), "small secondary") : null,
         s && id ? btn("View the event log", () => app.openLocal(s.sessionId, "events"), "small secondary") : null,
         id ? recordHistoryButton(id) : null,
+        id ? btn(ui.show["design-" + id] ? "Hide design history" : "Design history", () => toggle("design-" + id), "small secondary") : null,
         id && staff ? btn("QR sticker", () => logbookSticker(id), "small secondary") : null,
         id && app ? saveButton(id, s ? "Refresh" : "Save to this device", s && newer && !changed ? "small" : "small secondary", x.number) : null,
         s && id && changed && staff ? btn("Upload changes", () => uploadChanges(s), "small") : null,
@@ -969,6 +976,7 @@
         s ? btn("Delete", () => deleteLocalLogbook(s), "small secondary") : null,
       ),
       open && id ? recordHistory(id) : null,
+      open && id && ui.show["design-" + id] ? logbookDesignPanel(id) : null,
     ])]);
   }
   function renderFind() {
@@ -3026,6 +3034,123 @@
     return out;
   }
 
+  // ---- Logbook requests (supabase/migrations/20261120000000_design_reviews.sql) ----
+  // A roll cage design sent from the Rollcage assessment tool to this scrutineer for its logbook:
+  // open it (it becomes a logbook to prepare, on this device), inspect the car, issue the logbook
+  // -- which completes the request -- or decline it, saying why.
+  const DESIGN_BUCKET = "design-files";
+  async function loadLogbookRequests() {
+    try { ui.designRequests = await rpc("my_design_requests"); } catch (e) { ui.designRequests = []; fail(e); }
+    render();
+  }
+  const myLogbookRequests = () => (ui.designRequests || []).flatMap((d) => d.requests.filter((r) => r.mine && r.kind === "logbook").map((r) => ({ d, r })));
+  async function designNotify(requestId, kind) {
+    const { data } = await sb.auth.getSession();
+    const token = data && data.session && data.session.access_token;
+    const r = await fetch("/api/notify", { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: JSON.stringify({ requestId, kind }) });
+    return r.ok;
+  }
+  async function openLogbookRequest(d, r) {
+    const v = d.versions[d.versions.length - 1];
+    ui.busy = "Downloading the design…"; render();
+    try {
+      const { data, error } = await sb.storage.from(DESIGN_BUCKET).download(v.fileSha);
+      if (error) throw error;
+      const file = JSON.parse(await data.text());
+      // Already here (opened before): that copy, unless it's from an older version.
+      const here = app.listLocal().find((s) => s.vehicle && s.vehicle.logbookRequest && s.vehicle.logbookRequest.id === r.id);
+      await app.importData(file, { replace: here && here.vehicle.logbookRequest.seq !== v.seq ? here.sessionId : null, open: !here || here.vehicle.logbookRequest.seq !== v.seq,
+        vehicle: { logbookRequest: { id: r.id, designId: d.id, seq: v.seq, ownerEmail: d.ownerEmail, title: d.title } } });
+      if (here && here.vehicle.logbookRequest.seq === v.seq) app.openLocal(here.sessionId);
+      ui.busy = null;
+      // The owner's email, for the logbook (when the design doesn't say).
+      const rc = app.currentRollcage();
+      if (!((rc.answers || {}).vehicle_owner_email || {}).value) app.setAnswer("vehicle_owner_email", d.ownerEmail);
+      goMode("create");
+      say("pass", "\u201c" + d.title + "\u201d is open below, from " + d.ownerEmail + "'s request. Inspect the car, complete the logbook information, then issue it: that completes the request.");
+    } catch (e) { ui.busy = null; fail(e); }
+  }
+  async function declineLogbookRequest(d, r) {
+    const note = prompt("Decline the logbook request -- why? (" + d.ownerEmail + " sees it)", "");
+    if (!note || !note.trim()) return;
+    try {
+      await rpc("return_design_request", { p_id: r.id, p_note: note.trim(), p_decline: true });
+      const mailed = await designNotify(r.id, "returned").catch(() => false);
+      say("pass", "Request declined" + (mailed ? ": " + d.ownerEmail + " was emailed." : "."));
+      loadLogbookRequests();
+    } catch (e) { fail(e); }
+  }
+  // A design's history: its versions and where it went.
+  function designHistory(d) {
+    const events = d.versions.map((v) => ({ at: v.createdAt, text: "Version " + v.seq + " by " + (v.role === "owner" ? "the owner" : v.authorName) + (v.note ? ": " + v.note : "") }))
+      .concat(d.requests.flatMap((r) => [{ at: r.createdAt, text: (r.kind === "logbook" ? "Logbook requested from " : "Sent for review to ") + r.reviewerName + " (version " + r.versionSeq + ")" + (r.message ? ": " + r.message : "") }]
+        .concat(r.handledAt ? [{ at: r.handledAt, text: r.status === "returned" ? "Returned by " + r.reviewerName + (r.returnedSeq > r.versionSeq ? " with version " + r.returnedSeq : " unchanged") + (r.returnNote ? ": " + r.returnNote : "")
+          : r.status === "declined" ? "Declined by " + r.reviewerName + (r.returnNote ? ": " + r.returnNote : "")
+          : r.status === "withdrawn" ? "Request to " + r.reviewerName + " withdrawn"
+          : "Logbook " + (r.logbookNumber || "") + " issued by " + r.reviewerName }] : [])))
+      .sort((a, b) => (a.at < b.at ? -1 : 1));
+    return h("ol", { class: "account-design-history" }, events.map((e) => h("li", {}, [h("span", { class: "element-desc" }, [fmtDate(e.at) + " "]), e.text])));
+  }
+  function renderLogbookRequests() {
+    if (ui.designRequests === undefined) { ui.designRequests = null; loadLogbookRequests(); }
+    if (!ui.designRequests) return [desc("Loading…")];
+    const all = myLogbookRequests();
+    const open = all.filter(({ r }) => r.status === "open"), done = all.filter(({ r }) => r.status !== "open");
+    const card = ({ d, r }) => h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title account-card-title-row" }, [h("span", {}, [d.title]),
+        h("span", { class: "badge " + (r.status === "open" ? "req" : r.status === "issued" ? "pass" : "info") }, [r.status === "open" ? "waiting" : r.status === "issued" ? "issued " + (r.logbookNumber || "") : r.status])]),
+      desc(["from " + d.ownerEmail, "sent " + fmtDate(r.createdAt), d.versions.length + " version" + (d.versions.length === 1 ? "" : "s"), [r.bodyName, r.disciplineName].filter(Boolean).join(" "),
+        r.keepHistory ? "keep its design history with the logbook" : null].filter(Boolean).join(" · ")),
+      r.message ? desc("\u201c" + r.message + "\u201d") : null,
+      r.returnNote ? desc("Declined: " + r.returnNote) : null,
+      actions(
+        r.status === "open" ? btn("Open the design", () => openLogbookRequest(d, r), "small") : null,
+        r.status === "open" ? btn("Decline", () => declineLogbookRequest(d, r), "small secondary") : null,
+        h("a", { class: "btn small secondary", href: "mailto:" + d.ownerEmail }, ["Email " + d.ownerEmail]),
+        btn(ui.show["dh" + r.id] ? "Hide its history" : "Design history", () => toggle("dh" + r.id), "small secondary"),
+      ),
+      ui.show["dh" + r.id] ? designHistory(d) : null,
+    ]);
+    return [
+      desc("Roll cage designs sent to you from the Rollcage assessment tool for a logbook. Open one: it opens as a logbook to prepare, on this device. Inspect the car, complete the logbook information, then issue it -- that completes the request, and the owner is emailed as usual."),
+      actions(btn("Refresh", loadLogbookRequests, "small secondary")),
+      open.length ? open.map(card) : desc("No logbook requests waiting."),
+      done.length ? section("requestsDone", "Done (" + done.length + ")", done.map(card)) : null,
+    ];
+  }
+  // A logbook's design history (when its owner let it keep it).
+  async function loadLogbookDesign(id) {
+    ui.logbookDesigns = ui.logbookDesigns || {};
+    try { ui.logbookDesigns[id] = (await rpc("logbook_design_history", { p_logbook: id })) || false; } catch (e) { ui.logbookDesigns[id] = false; fail(e); }
+    render();
+  }
+  function logbookDesignPanel(id) {
+    ui.logbookDesigns = ui.logbookDesigns || {};
+    if (!(id in ui.logbookDesigns)) { ui.logbookDesigns[id] = null; loadLogbookDesign(id); }
+    const d = ui.logbookDesigns[id];
+    return h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Design history"]),
+      d === null ? desc("Loading…") : d ? [desc("\u201c" + d.title + "\u201d, by " + d.ownerEmail + ": its versions and reviews before this logbook was issued."), designHistory(d)]
+        : desc("This logbook didn't keep a design history (it wasn't issued from a design request, or its owner chose not to).")]);
+  }
+  // Annual sticker applications: the opt-in daily digest, per body and discipline.
+  async function loadStickerAlerts() {
+    try { ui.stickerAlerts = await rpc("my_sticker_alerts"); } catch (e) { ui.stickerAlerts = []; }
+    render();
+  }
+  function stickerAlertBox(a) {
+    if (ui.stickerAlerts === undefined) { ui.stickerAlerts = null; loadStickerAlerts(); }
+    if (!ui.stickerAlerts) return null;
+    const disc = annualDisc(a);
+    const on = ui.stickerAlerts.some((x) => x.body === a.body && x.discipline === disc);
+    const where = [bodyName(a.body), annualDiscName(a)].filter(Boolean).join(" ");
+    return h("div", { class: "account-checks" }, [h("label", {}, [
+      h("input", { type: "checkbox", checked: on, onchange: async (e) => {
+        try { await rpc("set_sticker_alert", { p_body: a.body, p_discipline: disc, p_on: e.target.checked }); await loadStickerAlerts();
+          say("pass", e.target.checked ? "You'll get a daily email when new applications arrive for " + where + "." : "No more digest emails for " + where + "."); }
+        catch (err) { fail(err); loadStickerAlerts(); } } }),
+      " Email me a daily digest of new applications for " + where])]);
+  }
+
   // ---- Fabricators and scrutineers near you (supabase/migrations/20261119000000_fabricators_directory.sql) ----
   // The public directory: approved roll cage fabricators, and scrutineers who chose to be listed,
   // with their city and state/province. Anyone sees it (signed in or not, also at ?directory);
@@ -3604,6 +3729,7 @@
     ])];
     if (a.body && seasonlessBody(a.body)) out.push(desc(bodyName(a.body) + "'s stickers have no season: they record the certifications on the gear's tags, and never expire. Whoever scans one checks those certifications against their own body's rules."));
     if (!a.body) return out.concat(desc("Pick the body you're issuing stickers for."));
+    if (annualReady(a) && a.discipline !== NO_DISCIPLINE && annualGear(a)) out.push(stickerAlertBox(a));
     if (!annualReady(a)) return out.concat(desc(discs && !discs.length ? "You don't issue annual stickers for any of " + bodyName(a.body) + "'s disciplines." : "Pick the discipline: its stickers are good for its events."));
     const apps = a.applications || [];
     // No discipline: only what's already there -- new stickers are a discipline's.
@@ -3707,6 +3833,7 @@
     events: { title: "Event admin", text: "Organize events: create them, their staff and tech sheets, and their competitors (MotorsportReg import)." },
     // The Scrutineering site's way to the two above: its own page with their cards.
     directory: { title: "Fabricators and scrutineers", text: "Find an approved roll cage fabricator, or a scrutineer near you. Fabricators apply here to be listed." },
+    requests: { title: "Logbook requests", text: "Roll cage designs sent to you from the Rollcage assessment tool for a logbook: open one, inspect the car, and issue its logbook." },
     logbooks: { title: "Digital logbooks", text: "A car's logbook: create a new one, or open one from the logbook library -- on this device and online." },
     annual: { title: "Annual safety stickers", text: "Season stickers for helmets, HANS, seats, fire extinguishers and suppression systems -- outside an event, from a competitor's application or last season's sticker." },
     bodies: { title: "Sanctioning bodies, scrutineers and tech sheets", text: "Technical directors, scrutineers, their licenses and permissions, and each body's tech sheets." },
@@ -3726,7 +3853,7 @@
     const manager = organizer || MANAGE.some(canAnywhere);
     return SITE === "scrutineering"
       ? (staff ? ["event"] : []).concat(ANNUAL_PERMS.some(canAnywhere) ? ["annual"] : [], ["logbooks", "directory"], organizer ? ["events"] : [], manager ? ["bodies"] : [])
-      : ["create", "library", "directory"].concat(manager ? ["bodies"] : []);
+      : ["create", "library"].concat(canAnywhere("issue_logbooks") ? ["requests"] : [], ["directory"], manager ? ["bodies"] : []);
   }
   // The home screen shows the modes only; Event and Admin modes don't use
   // the logbook editor, and the library starts on its list -- each hides it.
@@ -3744,7 +3871,10 @@
   function modeCards(modes) {
     const open = ui.events.filter((e) => e.open && e.myRole).length;
     const garage = ui.garage.length ? ui.garage.length + " in your garage" : null;
-    const badge = { library: garage, logbooks: garage, event: open ? open + " open now" : null };
+    if (ui.designRequests === undefined && canAnywhere("issue_logbooks")) { ui.designRequests = null; loadLogbookRequests(); }
+    const waiting = myLogbookRequests().filter(({ r }) => r.status === "open").length;
+    const requestsBadge = waiting ? waiting + " logbook request" + (waiting === 1 ? "" : "s") + " waiting" : null;
+    const badge = { library: garage, logbooks: [garage, requestsBadge].filter(Boolean).join(" · ") || null, event: open ? open + " open now" : null, requests: requestsBadge };
     return h("div", { class: "account-modes" }, modes.map((m, i) => h("button", { type: "button", class: "account-mode", onclick: () => goMode(m) }, [
       h("span", { class: "account-mode-number" }, [String(i + 1)]),
       h("span", { class: "account-mode-title" }, [MODES[m].title]),
@@ -3775,7 +3905,7 @@
       library: () => goMode("library"),
       annual: () => { if (ui.annual) { ui.annual.carSheet = null; ui.annual.item = null; } render(); },
     }[m];
-    if (SITE === "scrutineering" && (m === "create" || m === "library")) items.push([MODES.logbooks.title, () => goMode("logbooks")]);
+    if (SITE === "scrutineering" && (m === "create" || m === "library" || m === "requests")) items.push([MODES.logbooks.title, () => goMode("logbooks")]);
     items.push([MODE_CRUMBS[m] || MODES[m].title, toList || null]);
     if (m === "bodies" && ui.body) {
       items.push([bodyCode(ui.body), () => { ui.templateEdit = null; ui.bodyTab = "scrutineers"; ui.show = {}; render(); }]);
@@ -3839,8 +3969,11 @@
         startButtons,
       ];
     }
+    const openVehicle = app.currentRollcage().vehicle || {};
+    const fromRequest = !openVehicle.server && openVehicle.logbookRequest;
     return [
       openLogbookBar(),
+      fromRequest ? desc("From " + fromRequest.ownerEmail + "'s logbook request (\u201c" + fromRequest.title + "\u201d, version " + fromRequest.seq + "): inspect the car, then issue it -- that completes the request.") : null,
       staff
         ? h("div", { class: "account-card" }, [h("div", { class: "account-card-title" }, ["Ready to issue?"]), renderIssue()])
         : desc("When it's complete, a scrutineer issues it after inspecting the car: bring this device, or send them the file (Export to a file)."),
@@ -3868,7 +4001,8 @@
   }
   function renderModeView(m) {
     const out = [modeHeader(m)];
-    if (m === "logbooks") out.push(modeCards(["create", "library"]));
+    if (m === "logbooks") out.push(modeCards(["create", "library"].concat(canAnywhere("issue_logbooks") ? ["requests"] : [])));
+    if (m === "requests") out.push(renderLogbookRequests());
     if (m === "directory") out.push(renderDirectoryMode());
     if (m === "create") out.push(renderCreate());
     if (m === "library") out.push(renderLibrary());
@@ -3918,7 +4052,7 @@
         (r.expired || []).forEach((x) => children.push(h("p", { class: "verdict warn" }, ["Your " + x.bodyName + " license expired on " + fmtDate(x.licenseExpires) + ": ask your technical director to renew it."])));
         // (On the Scrutineering site, creating and the library sit under Digital logbooks.)
         const modes = availableModes();
-        if (!modes.concat(modes.includes("logbooks") ? ["create", "library"] : []).includes(ui.mode)) ui.mode = "home";
+        if (!modes.concat(modes.includes("logbooks") ? ["create", "library"].concat(canAnywhere("issue_logbooks") ? ["requests"] : []) : []).includes(ui.mode)) ui.mode = "home";
         const home = ui.mode === "home" || !app;
         children.push(home ? renderHome() : renderModeView(ui.mode));
       }

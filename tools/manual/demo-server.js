@@ -294,8 +294,35 @@
     my_staff_profile: () => staffProfile,
     save_staff_profile: (a) => { staffProfile = Object.assign({}, a.p); return null; },
   };
+  // A roll cage design sent from the Rollcage assessment tool for a logbook (and the reviews before).
+  const DEMO_SHA = "a".repeat(64);
+  const DEMO_DESIGN = { id: "dsg1", title: "2006 Impreza WRX cage", ownerEmail: "jordan.lee@example.com", createdAt: at(-20), updatedAt: at(-1),
+    versions: [
+      { seq: 1, authorName: "jordan.lee@example.com", role: "owner", note: null, fileSha: DEMO_SHA, createdAt: at(-20) },
+      { seq: 2, authorName: "Granite State Cages", role: "reviewer", note: "Door bars moved up 40 mm; gussets added at the main hoop", fileSha: DEMO_SHA, createdAt: at(-15) },
+      { seq: 3, authorName: "jordan.lee@example.com", role: "owner", note: "Seat and harness bar added", fileSha: DEMO_SHA, createdAt: at(-2) },
+    ],
+    requests: [
+      { id: "dr1", kind: "review", reviewerName: "Granite State Cages", reviewerKind: "fabricator", body: "drc", bodyName: "Demo Rally Club", discipline: "rally", disciplineName: "Rally",
+        message: "Can you check the door bars?", versionSeq: 1, returnedSeq: 2, status: "returned", returnNote: "Looks good once the door bars sit higher -- done in version 2.", createdAt: at(-18), handledAt: at(-15), mine: false },
+      { id: "dr2", kind: "logbook", reviewerName: "Alex Morgan", reviewerKind: "scrutineer", body: "drc", bodyName: "Demo Rally Club", discipline: null, disciplineName: "",
+        message: "Car is ready at my shop in Concord any weekday.", versionSeq: 3, status: "open", keepHistory: true, createdAt: at(-1), mine: true },
+    ] };
+  const DEMO_DESIGN_FILE = { exportedFrom: "Rollcage assessment tool", vehicle: { name: "2006 Impreza WRX", org: "ara" }, pathId: "new_construction",
+    answers: { vehicle_manufacturer: { value: "Subaru" }, vehicle_model: { value: "Impreza WRX" }, vehicle_year: { value: "2006" }, vehicle_vin: { value: "JF1GD70625L512345" } }, pictures: [], images: {} };
+  let stickerAlerts = [];
+  const RPC_DESIGNS = {
+    my_design_requests: () => [DEMO_DESIGN],
+    my_designs: () => [],
+    return_design_request: (a) => { const r = DEMO_DESIGN.requests.find((x) => x.id === a.p_id); Object.assign(r, { status: a.p_decline ? "declined" : "returned", returnNote: a.p_note, handledAt: new Date().toISOString() }); return null; },
+    complete_logbook_request: (a) => { const r = DEMO_DESIGN.requests.find((x) => x.id === a.p_id); Object.assign(r, { status: "issued", logbookId: a.p_logbook, handledAt: new Date().toISOString() }); return null; },
+    logbook_design_history: (a) => (a.p_logbook === LB ? DEMO_DESIGN : null),
+    my_sticker_alerts: () => stickerAlerts,
+    set_sticker_alert: (a) => { stickerAlerts = stickerAlerts.filter((x) => !(x.body === a.p_body && x.discipline === a.p_discipline)); if (a.p_on) stickerAlerts.push({ body: a.p_body, discipline: a.p_discipline }); return null; },
+  };
   const RPC = {
     ...RPC_DIRECTORY,
+    ...RPC_DESIGNS,
     my_roles: () => roles,
     // Annual car inspections (Rally: on the historic sheet).
     save_annual_car_template: (a) => {
@@ -436,7 +463,7 @@
     },
     rpc: async (fn, args) => (RPC[fn] ? result(() => RPC[fn](args || {})) : (console.warn("demo server: no rpc", fn), { data: null, error: null })),
     from: query,
-    storage: { from: () => ({ download: async (sha) => (window.demoOffline ? { data: null, error: NO_NETWORK } : { data: await photoBlob(sha), error: null }),
+    storage: { from: (bucket) => ({ download: async (sha) => (window.demoOffline ? { data: null, error: NO_NETWORK } : bucket === "design-files" ? { data: new Blob([JSON.stringify(DEMO_DESIGN_FILE)]), error: null } : { data: await photoBlob(sha), error: null }),
       upload: async () => ({ error: window.demoOffline ? NO_NETWORK : null }) }) },
   };
   let real;
