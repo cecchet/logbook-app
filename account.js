@@ -2862,9 +2862,14 @@
         actions(btn("Save body", saveBody), btn("Cancel", () => toggle("editBody", false), "secondary")),
       ]) : null,
       // Tech sheets: the body's organizers (technical directors, System admins).
-      isOrganizer(b.id) ? tabs([["scrutineers", "Scrutineers (" + people.filter((a) => !a.deleted_at).length + ")"], ["techsheets", "Tech sheets (" + bodyTemplates(b.id).length + ")"],
-        ["annual", "Annual stickers"]], ui.bodyTab, (t) => { ui.bodyTab = t; render(); }) : null,
+      isOrganizer(b.id) || can(b.id, "add_scrutineers") ? tabs([["scrutineers", "Scrutineers (" + people.filter((a) => !a.deleted_at).length + ")"]].concat(
+        isOrganizer(b.id) ? [["techsheets", "Tech sheets (" + bodyTemplates(b.id).length + ")"], ["annual", "Annual stickers"]] : [],
+        [["fabricators", "Fabricators"]]), ui.bodyTab, (t) => { ui.bodyTab = t; if (t === "fabricators" && ui.bodyFabs) delete ui.bodyFabs[b.id]; render(); }) : null,
     ];
+    if (ui.bodyTab === "fabricators" && (isOrganizer(b.id) || can(b.id, "add_scrutineers"))) {
+      out.push(renderBodyFabricators(b));
+      return out;
+    }
     if (ui.bodyTab === "techsheets" && isOrganizer(b.id)) {
       out.push(renderBodyTechSheets(b));
       return out;
@@ -3019,6 +3024,216 @@
       }),
     ]) : desc("No scrutineers yet."));
     return out;
+  }
+
+  // ---- Fabricators and scrutineers near you (supabase/migrations/20261119000000_fabricators_directory.sql) ----
+  // The public directory: approved roll cage fabricators, and scrutineers who chose to be listed,
+  // with their city and state/province. Anyone sees it (signed in or not, also at ?directory);
+  // fabricators apply here to be listed, and scrutineers set their own listing.
+  // ui.dir: { kind, body, discipline, logbooks, search, fabs, scrs }
+  const place = (x) => [x.city, x.region, x.country].filter(Boolean).join(", ");
+  const scopeName = (x) => [x.bodyName || bodyName(x.body), x.disciplineName].filter(Boolean).join(" ");
+  function dirState() {
+    if (!ui.dir) ui.dir = { kind: "fabricators", body: "", discipline: "", logbooks: false, search: "", fabs: null, scrs: null };
+    return ui.dir;
+  }
+  async function loadDirectory() {
+    const d = dirState();
+    try {
+      const [fabs, scrs] = await Promise.all([rpc("fabricator_directory", {}), rpc("scrutineer_directory", {})]);
+      d.fabs = fabs || []; d.scrs = scrs || [];
+    } catch (e) { d.fabs = d.fabs || []; d.scrs = d.scrs || []; fail(e); }
+    render();
+  }
+  // One card per business (or person) and place, with every body and discipline it's listed for.
+  function groupListings(list, keyOf) {
+    const out = new Map();
+    list.forEach((x) => {
+      const k = keyOf(x);
+      if (!out.has(k)) out.set(k, Object.assign({}, x, { scopes: [] }));
+      const g = out.get(k);
+      const sc = scopeName(x) + (x.issuesLogbooks ? " (issues logbooks)" : "");
+      if (!g.scopes.includes(sc)) g.scopes.push(sc);
+      if (x.issuesLogbooks) g.issuesLogbooks = true;
+    });
+    return [...out.values()];
+  }
+  function renderDirectory() {
+    const d = dirState();
+    if (d.fabs === null && !d.loading) { d.loading = true; loadDirectory().finally(() => { d.loading = false; }); }
+    if (d.fabs === null) return [desc("Loading the directory…")];
+    const all = d.kind === "fabricators" ? d.fabs : d.scrs;
+    const bodies = [...new Map(d.fabs.concat(d.scrs).map((x) => [x.body, x.bodyName || bodyName(x.body)])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    const discs = [...new Map(all.filter((x) => x.body === d.body && x.discipline).map((x) => [x.discipline, x.disciplineName])).entries()];
+    const words = d.search.toLowerCase().split(/\s+/).filter(Boolean);
+    const hit = (x) => (!d.body || x.body === d.body) && (!d.discipline || !x.discipline || x.discipline === d.discipline)
+      && (d.kind !== "scrutineers" || !d.logbooks || x.issuesLogbooks)
+      && words.every((w) => [x.business, x.contactName, x.name, place(x)].filter(Boolean).join(" ").toLowerCase().includes(w));
+    const list = groupListings(all.filter(hit), (x) => (x.business || x.name) + "|" + place(x));
+    return [
+      tabs([["fabricators", "Fabricators (" + groupListings(d.fabs, (x) => x.business + "|" + place(x)).length + ")"],
+        ["scrutineers", "Scrutineers (" + groupListings(d.scrs, (x) => x.name + "|" + place(x)).length + ")"]], d.kind, (t) => { d.kind = t; render(); }),
+      desc(d.kind === "fabricators"
+        ? "Roll cage fabricators approved by a sanctioning body: contact them through their website or phone."
+        : "Scrutineers who chose to be listed, and where they are. To get a logbook issued, look for one who issues logbooks for your sanctioning body."),
+      h("div", { class: "field-row" }, [
+        field("Sanctioning body", select([["", "Any"]].concat(bodies), d.body, (v) => { d.body = v; d.discipline = ""; render(); })),
+        discs.length ? field("Discipline", select([["", "Any"]].concat(discs), d.discipline, (v) => { d.discipline = v; render(); })) : null,
+        field("Near (city, state…)", input({ value: d.search, "data-id": "dir-search", placeholder: "e.g. Concord NH" }, (v) => { d.search = v; render(); restoreFocus("dir-search"); })),
+      ]),
+      d.kind === "scrutineers" ? h("div", { class: "account-checks" }, [h("label", {}, [
+        h("input", { type: "checkbox", checked: d.logbooks, onchange: (e) => { d.logbooks = e.target.checked; render(); } }), " Only those who issue logbooks"])]) : null,
+      list.length ? list.map((x) => h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title account-card-title-row" }, [h("span", {}, [x.business || x.name]),
+          d.kind === "scrutineers" && x.issuesLogbooks ? h("span", { class: "badge pass" }, ["issues logbooks"]) : null]),
+        desc([place(x), x.contactName ? "contact " + x.contactName : null, x.role === "technical_director" ? "technical director" : null].filter(Boolean).join(" · ")),
+        desc("Approved by " + x.scopes.join(", ")),
+        x.website || x.phone ? actions(
+          x.website ? h("a", { class: "btn small secondary", href: /^https?:\/\//i.test(x.website) ? x.website : "https://" + x.website, target: "_blank", rel: "noopener" }, ["Website"]) : null,
+          x.phone ? h("a", { class: "btn small secondary", href: "tel:" + x.phone.replace(/[^0-9+]/g, "") }, [x.phone]) : null,
+        ) : null,
+      ])) : desc(all.length ? "Nobody matches." : d.kind === "fabricators" ? "No approved fabricators yet." : "No scrutineers listed yet."),
+    ];
+  }
+  // ---- Fabricators: applying to be listed, and one's applications ----
+  const fabForm = { business: "", contactName: "", city: "", region: "", country: "", website: "", phone: "", note: "", targets: {} };
+  async function loadMyFabricator() {
+    try { ui.myFab = await rpc("my_fabricator_applications"); } catch (e) { ui.myFab = []; fail(e); }
+    render();
+  }
+  const FAB_STATUS = { pending: ["info", "waiting for approval"], approved: ["pass", "approved"], declined: ["fail", "declined"], withdrawn: ["info", "withdrawn"], removed: ["fail", "removed"] };
+  function fabDetailFields() {
+    return [
+      h("div", { class: "field-row" }, [
+        field("Business name", input({ value: fabForm.business }, (v) => { fabForm.business = v; })),
+        field("Contact name", input({ value: fabForm.contactName }, (v) => { fabForm.contactName = v; })),
+      ]),
+      h("div", { class: "field-row" }, [
+        field("City", input({ value: fabForm.city }, (v) => { fabForm.city = v; })),
+        field("State / province", input({ value: fabForm.region }, (v) => { fabForm.region = v; })),
+        field("Country", input({ value: fabForm.country, placeholder: "e.g. USA" }, (v) => { fabForm.country = v; })),
+      ]),
+      h("div", { class: "field-row" }, [
+        field("Website", input({ value: fabForm.website, placeholder: "e.g. www.example.com" }, (v) => { fabForm.website = v; })),
+        field("Phone", input({ value: fabForm.phone }, (v) => { fabForm.phone = v; })),
+      ]),
+    ];
+  }
+  function renderFabricatorSection() {
+    if (ui.myFab === undefined) { ui.myFab = null; loadMyFabricator(); }
+    const mine = ui.myFab || [];
+    const live = mine.filter((f) => f.status === "pending" || f.status === "approved");
+    const fill = (f) => Object.assign(fabForm, { business: f.business || "", contactName: f.contactName || "", city: f.city || "", region: f.region || "",
+      country: f.country || "", website: f.website || "", phone: f.phone || "" });
+    // Where one can apply: the active bodies, each discipline (or the body itself), not already applied to.
+    const taken = new Set(live.map((f) => f.body + "|" + (f.discipline || "")));
+    const targets = (ui.bodies || []).filter((b) => !b.disabled_at && !b.deleted_at).flatMap((b) => {
+      const ds = disciplinesOf(b.id);
+      return (ds.length ? ds.map((d) => [b.id, d.id, b.name + " " + d.name]) : [[b.id, "", b.name]]).filter(([bid, did]) => !taken.has(bid + "|" + did));
+    });
+    const apply = async () => {
+      const picked = Object.keys(fabForm.targets).filter((k) => fabForm.targets[k]).map((k) => { const [body, discipline] = k.split("|"); return { body, discipline: discipline || null }; });
+      try {
+        await rpc("apply_fabricator", { p: Object.assign({}, fabForm, { targets: picked }) });
+        fabForm.targets = {}; ui.show.fabApply = false;
+        say("pass", "Application sent: the sanctioning body's technical director reviews it. You're listed once it's approved.");
+        loadMyFabricator();
+      } catch (e) { fail(e); }
+    };
+    const saveDetails = async () => {
+      try { await rpc("update_my_fabricator", { p: fabForm }); ui.show.fabEdit = false; say("pass", "Your listing's details are saved."); loadMyFabricator(); }
+      catch (e) { fail(e); }
+    };
+    const withdraw = async (f) => {
+      if (!confirm((f.status === "approved" ? "Leave " : "Withdraw your application to ") + scopeName(f) + "?")) return;
+      try { await rpc("withdraw_fabricator", { p_id: f.id }); loadMyFabricator(); } catch (e) { fail(e); }
+    };
+    return h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title" }, ["Roll cage fabricators: get listed"]),
+      desc("Fabricators apply to each sanctioning body (and discipline) they build cages for; its technical director approves them, and they're then listed above. Design reviews by fabricators come next."),
+      mine.length ? mine.map((f) => h("div", { class: "account-entry" }, [
+        h("span", { class: "account-entry-main" }, [h("strong", {}, [scopeName(f)]), " ",
+          h("span", { class: "badge " + FAB_STATUS[f.status][0] }, [FAB_STATUS[f.status][1]]),
+          h("span", { class: "element-desc" }, [" · " + f.business + " · applied " + fmtDate(f.appliedAt) + (f.decisionNote ? " · " + f.decisionNote : "")])]),
+        f.status === "pending" || f.status === "approved" ? btn(f.status === "approved" ? "Leave" : "Withdraw", () => withdraw(f), "small secondary") : null,
+      ])) : null,
+      actions(
+        btn(live.length ? "Apply to another body" : "Apply to be listed", () => { if (!ui.show.fabApply && live[0]) fill(live[0]); ui.show.fabEdit = false; toggle("fabApply"); }, ui.show.fabApply ? "small" : "small secondary"),
+        live.length ? btn("Edit my details", () => { if (!ui.show.fabEdit) fill(live[0]); ui.show.fabApply = false; toggle("fabEdit"); }, ui.show.fabEdit ? "small" : "small secondary") : null,
+      ),
+      ui.show.fabEdit ? h("div", { class: "account-card" }, [desc("These details show on all your listings."), fabDetailFields(), actions(btn("Save details", saveDetails), btn("Cancel", () => toggle("fabEdit", false), "secondary"))]) : null,
+      ui.show.fabApply ? h("div", { class: "account-card" }, [
+        fabDetailFields(),
+        field("About your work (for the technical director)", h("textarea", { rows: 3, oninput: (e) => { fabForm.note = e.target.value; } }, [fabForm.note])),
+        desc("The sanctioning bodies (and disciplines) to apply to:"),
+        targets.length ? h("div", { class: "account-checks" }, targets.map(([bid, did, label]) => h("label", {}, [
+          h("input", { type: "checkbox", checked: !!fabForm.targets[bid + "|" + did], onchange: (e) => { fabForm.targets[bid + "|" + did] = e.target.checked; } }), " " + label]))) : desc("You've applied everywhere already."),
+        actions(btn("Send the application", apply), btn("Cancel", () => toggle("fabApply", false), "secondary")),
+      ]) : null,
+    ]);
+  }
+  // ---- A scrutineer's own directory listing ----
+  async function loadStaffProfile() {
+    try { ui.staffProfile = (await rpc("my_staff_profile")) || { city: "", region: "", country: "", listed: false }; } catch (e) { ui.staffProfile = { city: "", region: "", country: "", listed: false }; fail(e); }
+    render();
+  }
+  function renderStaffProfile() {
+    if (ui.staffProfile === undefined) { ui.staffProfile = null; loadStaffProfile(); }
+    const p = ui.staffProfile;
+    if (!p) return null;
+    const save = async () => {
+      try { await rpc("save_staff_profile", { p }); say("pass", p.listed ? "You're listed in the scrutineer directory." : "Your location is saved; you're not listed."); ui.dir = null; render(); }
+      catch (e) { fail(e); }
+    };
+    return h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title" }, ["Your listing as a scrutineer"]),
+      desc("Your city and state/province, so competitors can find a scrutineer near them -- to get a logbook issued, for instance. Only your name, where you are and what you're accredited for show; never your email."),
+      h("div", { class: "field-row" }, [
+        field("City", input({ value: p.city || "" }, (v) => { p.city = v; })),
+        field("State / province", input({ value: p.region || "" }, (v) => { p.region = v; })),
+        field("Country", input({ value: p.country || "", placeholder: "e.g. USA" }, (v) => { p.country = v; })),
+      ]),
+      h("div", { class: "account-checks" }, [h("label", {}, [h("input", { type: "checkbox", checked: !!p.listed, onchange: (e) => { p.listed = e.target.checked; } }), " List me in the public scrutineer directory"])]),
+      actions(btn("Save my listing", save)),
+    ]);
+  }
+  function renderDirectoryMode() {
+    return renderDirectory().concat([isStaff() ? renderStaffProfile() : null, renderFabricatorSection()]);
+  }
+  // ---- A body's fabricators: applications to approve, and the approved ones ----
+  async function loadBodyFabricators(b) {
+    ui.bodyFabs = ui.bodyFabs || {};
+    try { ui.bodyFabs[b] = await rpc("body_fabricators", { p_body: b }); } catch (e) { ui.bodyFabs[b] = []; fail(e); }
+    render();
+  }
+  function renderBodyFabricators(b) {
+    ui.bodyFabs = ui.bodyFabs || {};
+    if (!(b.id in ui.bodyFabs)) { ui.bodyFabs[b.id] = null; loadBodyFabricators(b.id); }
+    const all = ui.bodyFabs[b.id];
+    if (!all) return [desc("Loading…")];
+    const decide = async (f, status) => {
+      const note = status === "approved" ? null : prompt(status === "declined" ? "Decline " + f.business + " -- why? (they see it)" : "Remove " + f.business + " from the list -- why? (they see it)", "");
+      if (status !== "approved" && (!note || !note.trim())) return;
+      try { await rpc("decide_fabricator", { p_id: f.id, p_status: status, p_note: note }); say("pass", f.business + (status === "approved" ? " is approved and listed." : status === "declined" ? " was declined." : " was removed.")); loadBodyFabricators(b.id); }
+      catch (e) { fail(e); }
+    };
+    const card = (f) => h("div", { class: "account-card" }, [
+      h("div", { class: "account-card-title account-card-title-row" }, [h("span", {}, [f.business + (f.disciplineName ? " · " + f.disciplineName : "")]),
+        h("span", { class: "badge " + FAB_STATUS[f.status][0] }, [FAB_STATUS[f.status][1]])]),
+      desc([place(f), [f.contactName, f.email].filter(Boolean).join(", "), f.website, f.phone, "applied " + fmtDate(f.appliedAt)].filter(Boolean).join(" · ")),
+      f.note ? desc("“" + f.note + "”") : null,
+      f.decisionNote ? desc((f.status === "approved" ? "" : FAB_STATUS[f.status][1] + ": ") + f.decisionNote) : null,
+      f.status === "pending" ? actions(btn("Approve", () => decide(f, "approved"), "small"), btn("Decline", () => decide(f, "declined"), "small secondary"))
+        : f.status === "approved" ? actions(btn("Remove from the list", () => decide(f, "removed"), "small secondary")) : null,
+    ]);
+    if (ui.open.fabPending === undefined) { ui.open.fabPending = true; ui.open.fabApproved = true; }
+    const pending = all.filter((f) => f.status === "pending"), approved = all.filter((f) => f.status === "approved"), past = all.filter((f) => f.status !== "pending" && f.status !== "approved");
+    return [
+      desc("Roll cage fabricators apply from Fabricators and scrutineers (on the home screen). Approved ones are listed in the public directory, for this body and discipline."),
+      section("fabPending", "Waiting for approval (" + pending.length + ")", pending.length ? pending.map(card) : [desc("No applications waiting.")]),
+      section("fabApproved", "Approved (" + approved.length + ")", approved.length ? approved.map(card) : [desc("No approved fabricators yet.")]),
+      past.length ? section("fabPast", "Declined, withdrawn and removed (" + past.length + ")", past.map(card)) : null,
+    ];
   }
 
   // ---- Public view (?logbook=<token>) --------------------------------------
@@ -3491,6 +3706,7 @@
     event: { title: "Scrutineering", text: "At an event: each car's tech sheet, its inspection and sign-off, and what's left to inspect." },
     events: { title: "Event admin", text: "Organize events: create them, their staff and tech sheets, and their competitors (MotorsportReg import)." },
     // The Scrutineering site's way to the two above: its own page with their cards.
+    directory: { title: "Fabricators and scrutineers", text: "Find an approved roll cage fabricator, or a scrutineer near you. Fabricators apply here to be listed." },
     logbooks: { title: "Digital logbooks", text: "A car's logbook: create a new one, or open one from the logbook library -- on this device and online." },
     annual: { title: "Annual safety stickers", text: "Season stickers for helmets, HANS, seats, fire extinguishers and suppression systems -- outside an event, from a competitor's application or last season's sticker." },
     bodies: { title: "Sanctioning bodies, scrutineers and tech sheets", text: "Technical directors, scrutineers, their licenses and permissions, and each body's tech sheets." },
@@ -3509,8 +3725,8 @@
     // Sanctioning bodies: organizers, and whoever manages a body's scrutineers.
     const manager = organizer || MANAGE.some(canAnywhere);
     return SITE === "scrutineering"
-      ? (staff ? ["event"] : []).concat(ANNUAL_PERMS.some(canAnywhere) ? ["annual"] : [], ["logbooks"], organizer ? ["events"] : [], manager ? ["bodies"] : [])
-      : ["create", "library"].concat(manager ? ["bodies"] : []);
+      ? (staff ? ["event"] : []).concat(ANNUAL_PERMS.some(canAnywhere) ? ["annual"] : [], ["logbooks", "directory"], organizer ? ["events"] : [], manager ? ["bodies"] : [])
+      : ["create", "library", "directory"].concat(manager ? ["bodies"] : []);
   }
   // The home screen shows the modes only; Event and Admin modes don't use
   // the logbook editor, and the library starts on its list -- each hides it.
@@ -3564,7 +3780,7 @@
     if (m === "bodies" && ui.body) {
       items.push([bodyCode(ui.body), () => { ui.templateEdit = null; ui.bodyTab = "scrutineers"; ui.show = {}; render(); }]);
       if (isOrganizer(ui.body)) {
-        items.push([ui.bodyTab === "techsheets" ? "Tech sheets" : ui.bodyTab === "annual" ? "Annual stickers" : "Scrutineers", () => { ui.templateEdit = null; ui.show = {}; render(); }]);
+        items.push([ui.bodyTab === "techsheets" ? "Tech sheets" : ui.bodyTab === "annual" ? "Annual stickers" : ui.bodyTab === "fabricators" ? "Fabricators" : "Scrutineers", () => { ui.templateEdit = null; ui.show = {}; render(); }]);
         const t = ui.bodyTab === "techsheets" && ui.templateEdit && ui.templateEdit.body === ui.body ? ui.templateEdit : null;
         if (t) items.push([t.id ? t.def.title : "New tech sheet", null]);
       }
@@ -3653,6 +3869,7 @@
   function renderModeView(m) {
     const out = [modeHeader(m)];
     if (m === "logbooks") out.push(modeCards(["create", "library"]));
+    if (m === "directory") out.push(renderDirectoryMode());
     if (m === "create") out.push(renderCreate());
     if (m === "library") out.push(renderLibrary());
     // An event open: its page; otherwise the list.
@@ -3675,7 +3892,11 @@
   // ---- Panel ---------------------------------------------------------------
   function render() {
     const children = [];
-    if (ui.stickerView) {
+    if (ui.directoryView) {
+      children.push(h("h2", {}, ["Fabricators and scrutineers"]), renderDirectory(),
+        desc("Fabricators: sign in on this site to apply to be listed."),
+        actions(h("a", { class: "btn small secondary", href: location.pathname }, ["Close"])));
+    } else if (ui.stickerView) {
       children.push(h("h2", {}, ["Tech sticker"]), renderSticker(), actions(h("a", { class: "btn small secondary", href: location.pathname }, ["Close"])));
     } else if (ui.publicView) {
       children.push(h("h2", {}, ["Logbook"]), renderPublic(), actions(h("a", { class: "btn small secondary", href: location.pathname }, ["Close"])));
@@ -3757,5 +3978,7 @@
   if (app && app.setLibraryHandler) app.setLibraryHandler(() => (ui.session ? goMode("library") : app.openLibrary()));
   const stickerCode = window.Stickers && Stickers.codeFromUrl();
   const token = new URLSearchParams(location.search).get("logbook");
-  if (stickerCode) loadSticker(stickerCode); else if (token) loadPublic(token); else render();
+  if (stickerCode) loadSticker(stickerCode); else if (token) loadPublic(token);
+  else if (new URLSearchParams(location.search).has("directory")) { ui.directoryView = true; render(); }
+  else render();
 })();

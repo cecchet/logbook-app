@@ -264,7 +264,38 @@
   const annualCars = [{ id: "ann-1", body: "drc", discipline: "rally", season: new Date().getFullYear(), templateId: "tpl-historic", template: null, variant: null,
     header: {}, car: { vin: "JF1GD70625L512345", make: "Subaru", model: "Impreza WRX", year: "2006", owner: "Jordan Lee" }, logbookNumber: null,
     competitor: { items: {}, submittedAt: at(-2), by: "jordan.lee@example.com" }, submittedBy: "jordan.lee@example.com", inspection: { items: {} }, status: "submitted", sticker: null }];
+  // Fabricators and the directory (made-up shops; the demo technical director's own listing).
+  const fab = (id, body, discipline, business, contactName, city, region, status, extra) => Object.assign({ id, body, bodyName: (bodies.find((b) => b.id === body) || {}).name,
+    discipline, disciplineName: discipline ? (disciplines.find((d) => d.body_id === body && d.id === discipline) || {}).name : "", business, contactName, city, region, country: "USA",
+    website: null, phone: null, email: business.toLowerCase().replace(/[^a-z]+/g, "") + "@example.com", note: null, status, appliedAt: at(-9), decisionNote: null }, extra);
+  const fabricators = [
+    fab("f1", "drc", "rally", "Granite State Cages", "Pat Rivera", "Concord", "NH", "approved", { website: "www.example.com", phone: "603-555-0142" }),
+    fab("f2", "drc", null, "Notch Fabrication", "Lee Grant", "Littleton", "NH", "approved", { phone: "603-555-0199" }),
+    fab("f3", "gmr", null, "Notch Fabrication", "Lee Grant", "Littleton", "NH", "approved", { phone: "603-555-0199" }),
+    fab("f4", "drc", "rally", "Valley Motorsport Fab", "Robin Hale", "White River Junction", "VT", "pending", { note: "15 years building FIA and ARA cages; TIG and MIG, CrMo and DOM." }),
+  ];
+  let staffProfile = { city: "Lancaster", region: "NH", country: "USA", listed: true };
+  const scrutineerDirectory = () => [
+    { name: "Alex Morgan", body: "drc", bodyName: "Demo Rally Club", discipline: null, disciplineName: "", role: "technical_director", city: staffProfile.city, region: staffProfile.region, country: staffProfile.country, issuesLogbooks: true },
+    { name: "Jamie Chen", body: "drc", bodyName: "Demo Rally Club", discipline: "rally", disciplineName: "Rally", role: "scrutineer", city: "Plymouth", region: "NH", country: "USA", issuesLogbooks: true },
+    { name: "Jamie Chen", body: "drc", bodyName: "Demo Rally Club", discipline: "autox", disciplineName: "Autocross", role: "scrutineer", city: "Plymouth", region: "NH", country: "USA", issuesLogbooks: false },
+    { name: "Sam Patel", body: "drc", bodyName: "Demo Rally Club", discipline: "autox", disciplineName: "Autocross", role: "scrutineer", city: "Burlington", region: "VT", country: "USA", issuesLogbooks: false },
+  ].filter((x) => x.name !== "Alex Morgan" || staffProfile.listed);
+  const publicFab = (f) => { const { email, note, status, appliedAt, decisionNote, ...pub } = f; return pub; };
+  const RPC_DIRECTORY = {
+    fabricator_directory: () => fabricators.filter((f) => f.status === "approved").map(publicFab),
+    scrutineer_directory: () => scrutineerDirectory(),
+    my_fabricator_applications: () => fabricators.filter((f) => f.email === ME),
+    apply_fabricator: (a) => a.p.targets.map((t, i) => { const id = "fm" + Date.now() + i; fabricators.push(fab(id, t.body, t.discipline, a.p.business, a.p.contactName, a.p.city, a.p.region, "pending", { email: ME, note: a.p.note, website: a.p.website, phone: a.p.phone, appliedAt: new Date().toISOString() })); return id; }),
+    update_my_fabricator: (a) => { fabricators.filter((f) => f.email === ME).forEach((f) => Object.assign(f, { business: a.p.business, contactName: a.p.contactName, city: a.p.city, region: a.p.region, country: a.p.country, website: a.p.website, phone: a.p.phone })); return null; },
+    withdraw_fabricator: (a) => { const f = fabricators.find((x) => x.id === a.p_id); if (f) f.status = "withdrawn"; return null; },
+    body_fabricators: (a) => fabricators.filter((f) => f.body === a.p_body),
+    decide_fabricator: (a) => { const f = fabricators.find((x) => x.id === a.p_id); f.status = a.p_status; f.decisionNote = a.p_note || null; return null; },
+    my_staff_profile: () => staffProfile,
+    save_staff_profile: (a) => { staffProfile = Object.assign({}, a.p); return null; },
+  };
   const RPC = {
+    ...RPC_DIRECTORY,
     my_roles: () => roles,
     // Annual car inspections (Rally: on the historic sheet).
     save_annual_car_template: (a) => {

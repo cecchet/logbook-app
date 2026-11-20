@@ -90,7 +90,7 @@ export default async function (a) {
   // ---- Event admin ----
   await a.go(SITE);
   await a.sleep(1200);
-  await a.eval(mode("/^4/"));
+  await a.eval(mode("/^5/"));
   await a.eval(`${click("/^Create new event$/", ".account-panel")}`);
   await a.eval(`${select("/^Discipline/", "rally")}`);
   await a.shot("30-admin-events", PANEL);
@@ -124,7 +124,7 @@ export default async function (a) {
   // ---- Sanctioning bodies, scrutineers and tech sheets ----
   await a.go(SITE);
   await a.sleep(1200);
-  await a.eval(mode("/^5/"));
+  await a.eval(mode("/^6/"));
   await a.shot("40-bodies", PANEL);
   await a.eval(`${click("/^Demo Rally Club/", ".account-panel")} window.scrollTo(0, 0);`);
   await a.shot("41-body", PANEL);
