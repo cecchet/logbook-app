@@ -275,6 +275,20 @@
     fab("f4", "drc", "rally", "Valley Motorsport Fab", "Robin Hale", "White River Junction", "VT", "pending", { note: "15 years building FIA and ARA cages; TIG and MIG, CrMo and DOM." }),
   ];
   let staffProfile = { city: "Lancaster", region: "NH", country: "USA", listed: true };
+  // Fabricators' own listings (what they build for, as PassTech names it), certified where approved.
+  const pt = (id, body, bodyName, discipline) => ({ id, body, bodyName, discipline });
+  const profiles = [
+    { id: "p1", email: "granitestatecages@example.com", business: "Granite State Cages", contactName: "Pat Rivera", city: "Concord", region: "NH", country: "USA", website: "www.example.com", phone: "603-555-0142",
+      about: "FIA and ARA cages, CrMo and DOM, TIG welded.", listed: true,
+      buildsFor: [pt("ara-rally", "ara", "ARA (American Rally Association)", "Rally"), pt("nasa-rally", "nasa", "NASA Rally Sport", "Rally"), pt("scca-road-racing", "scca", "SCCA", "Road Racing")] },
+    { id: "p2", email: "notchfabrication@example.com", business: "Notch Fabrication", contactName: "Lee Grant", city: "Littleton", region: "NH", country: "USA", website: null, phone: "603-555-0199",
+      about: null, listed: true, buildsFor: [pt("sccnh-gravel-trials", "sccnh", "SCCNH (Sports Car Club of New Hampshire)", "Gravel Trials"), pt("ara-rally", "ara", "ARA (American Rally Association)", "Rally")] },
+    { id: "p3", email: "summitroll@example.com", business: "Summit Roll Cages", contactName: "Morgan Lake", city: "Rutland", region: "VT", country: "USA", website: "www.example.org", phone: null,
+      about: "Bolt-in and weld-in cages for track day and time trial cars.", listed: true, buildsFor: [pt("nasa-hpde", "nasa", "NASA", "HPDE / Time Trial"), pt("scca-time-trial", "scca", "SCCA", "Time Trials")] },
+  ];
+  let myProfile = null;
+  const profileJson = (p) => Object.assign({}, p, { certifications: fabricators.filter((f) => f.email === p.email && f.status === "approved")
+    .map((f) => ({ body: f.body, bodyName: f.bodyName, discipline: f.discipline, disciplineName: f.disciplineName })) });
   const scrutineerDirectory = () => [
     { name: "Alex Morgan", body: "drc", bodyName: "Demo Rally Club", discipline: null, disciplineName: "", role: "technical_director", city: staffProfile.city, region: staffProfile.region, country: staffProfile.country, issuesLogbooks: true },
     { name: "Jamie Chen", body: "drc", bodyName: "Demo Rally Club", discipline: "rally", disciplineName: "Rally", role: "scrutineer", city: "Plymouth", region: "NH", country: "USA", issuesLogbooks: true },
@@ -283,10 +297,12 @@
   ].filter((x) => x.name !== "Alex Morgan" || staffProfile.listed);
   const publicFab = (f) => { const { email, note, status, appliedAt, decisionNote, ...pub } = f; return pub; };
   const RPC_DIRECTORY = {
-    fabricator_directory: () => fabricators.filter((f) => f.status === "approved").map(publicFab),
+    fabricator_directory: () => profiles.concat(myProfile ? [myProfile] : []).filter((p) => p.listed).map(profileJson).map(({ email, ...x }) => x),
+    my_fabricator_profile: () => (myProfile ? profileJson(myProfile) : null),
+    save_fabricator_profile: (a) => { myProfile = Object.assign({ id: "pme", email: ME }, a.p); delete myProfile.targets; delete myProfile.note; return profileJson(myProfile); },
     scrutineer_directory: () => scrutineerDirectory(),
     my_fabricator_applications: () => fabricators.filter((f) => f.email === ME),
-    apply_fabricator: (a) => a.p.targets.map((t, i) => { const id = "fm" + Date.now() + i; fabricators.push(fab(id, t.body, t.discipline, a.p.business, a.p.contactName, a.p.city, a.p.region, "pending", { email: ME, note: a.p.note, website: a.p.website, phone: a.p.phone, appliedAt: new Date().toISOString() })); return id; }),
+    apply_fabricator: (a) => a.p.targets.map((t, i) => { const id = "fm" + Date.now() + i; fabricators.push(fab(id, t.body, t.discipline, myProfile.business, myProfile.contactName, myProfile.city, myProfile.region, "pending", { email: ME, note: a.p.note, website: myProfile.website, phone: myProfile.phone, appliedAt: new Date().toISOString() })); return id; }),
     update_my_fabricator: (a) => { fabricators.filter((f) => f.email === ME).forEach((f) => Object.assign(f, { business: a.p.business, contactName: a.p.contactName, city: a.p.city, region: a.p.region, country: a.p.country, website: a.p.website, phone: a.p.phone })); return null; },
     withdraw_fabricator: (a) => { const f = fabricators.find((x) => x.id === a.p_id); if (f) f.status = "withdrawn"; return null; },
     body_fabricators: (a) => fabricators.filter((f) => f.body === a.p_body),

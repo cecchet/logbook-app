@@ -3183,50 +3183,88 @@
     });
     return [...out.values()];
   }
+  // What a fabricator builds for, by body: "SCCA (Road Racing, Time Trial), NASA (Rally)".
+  function buildsForText(list) {
+    const byBody = new Map();
+    (list || []).forEach((b) => { if (!byBody.has(b.bodyName)) byBody.set(b.bodyName, []); byBody.get(b.bodyName).push(b.discipline); });
+    return [...byBody.entries()].map(([name, ds]) => name + " (" + ds.join(", ") + ")").join("; ");
+  }
+  const certText = (list) => (list || []).map((c) => [c.bodyName, c.disciplineName].filter(Boolean).join(" ")).join(", ");
   function renderDirectory() {
     const d = dirState();
     if (d.fabs === null && !d.loading) { d.loading = true; loadDirectory().finally(() => { d.loading = false; }); }
     if (d.fabs === null) return [desc("Loading the directory…")];
-    const all = d.kind === "fabricators" ? d.fabs : d.scrs;
-    const bodies = [...new Map(d.fabs.concat(d.scrs).map((x) => [x.body, x.bodyName || bodyName(x.body)])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
-    const discs = [...new Map(all.filter((x) => x.body === d.body && x.discipline).map((x) => [x.discipline, x.disciplineName])).entries()];
     const words = d.search.toLowerCase().split(/\s+/).filter(Boolean);
-    const hit = (x) => (!d.body || x.body === d.body) && (!d.discipline || !x.discipline || x.discipline === d.discipline)
-      && (d.kind !== "scrutineers" || !d.logbooks || x.issuesLogbooks)
-      && words.every((w) => [x.business, x.contactName, x.name, place(x)].filter(Boolean).join(" ").toLowerCase().includes(w));
-    const list = groupListings(all.filter(hit), (x) => (x.business || x.name) + "|" + place(x));
-    return [
-      tabs([["fabricators", "Fabricators (" + groupListings(d.fabs, (x) => x.business + "|" + place(x)).length + ")"],
-        ["scrutineers", "Scrutineers (" + groupListings(d.scrs, (x) => x.name + "|" + place(x)).length + ")"]], d.kind, (t) => { d.kind = t; render(); }),
-      desc(d.kind === "fabricators"
-        ? "Roll cage fabricators approved by a sanctioning body: contact them through their website or phone."
-        : "Scrutineers who chose to be listed, and where they are. To get a logbook issued, look for one who issues logbooks for your sanctioning body."),
+    const near = (x) => words.every((w) => [x.business, x.contactName, x.name, place(x)].filter(Boolean).join(" ").toLowerCase().includes(w));
+    const scrGroups = groupListings(d.scrs, (x) => x.name + "|" + place(x));
+    const head = [
+      tabs([["fabricators", "Fabricators (" + d.fabs.length + ")"], ["scrutineers", "Scrutineers (" + scrGroups.length + ")"]], d.kind, (t) => { d.kind = t; d.body = ""; d.discipline = ""; render(); }),
+    ];
+    if (d.kind === "fabricators") {
+      // PassTech's bodies, as the fabricators listed them.
+      const bodies = [...new Map(d.fabs.flatMap((x) => x.buildsFor || []).map((b) => [b.body, b.bodyName])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+      const discs = [...new Map(d.fabs.flatMap((x) => x.buildsFor || []).filter((b) => b.body === d.body).map((b) => [b.id, b.discipline])).entries()];
+      const list = d.fabs.filter((x) => (!d.body || (x.buildsFor || []).some((b) => b.body === d.body && (!d.discipline || b.id === d.discipline)))
+        && (!d.certified || (x.certifications || []).length) && near(x));
+      return head.concat([
+        desc("Roll cage fabricators, and the sanctioning bodies they build cages for. \u201cCertified\u201d: a sanctioning body approved them. Contact them through their website or phone -- or send them your design for review from the Rollcage assessment tool."),
+        h("div", { class: "field-row" }, [
+          field("Builds for", select([["", "Any sanctioning body"]].concat(bodies), d.body, (v) => { d.body = v; d.discipline = ""; render(); })),
+          discs.length > 1 ? field("Discipline", select([["", "Any"]].concat(discs), d.discipline, (v) => { d.discipline = v; render(); })) : null,
+          field("Near (city, state…)", input({ value: d.search, "data-id": "dir-search", placeholder: "e.g. Concord NH" }, (v) => { d.search = v; render(); restoreFocus("dir-search"); })),
+        ]),
+        h("div", { class: "account-checks" }, [h("label", {}, [
+          h("input", { type: "checkbox", checked: !!d.certified, onchange: (e) => { d.certified = e.target.checked; render(); } }), " Only those certified by a sanctioning body"])]),
+        list.length ? list.map((x) => h("div", { class: "account-card" }, [
+          h("div", { class: "account-card-title account-card-title-row" }, [h("span", {}, [x.business]),
+            (x.certifications || []).length ? h("span", { class: "badge pass", title: "Certified by " + certText(x.certifications) }, ["certified"]) : null]),
+          desc([place(x), x.contactName ? "contact " + x.contactName : null].filter(Boolean).join(" · ")),
+          (x.buildsFor || []).length ? desc("Builds for " + buildsForText(x.buildsFor)) : null,
+          (x.certifications || []).length ? desc("Certified by " + certText(x.certifications)) : null,
+          x.about ? desc("\u201c" + x.about + "\u201d") : null,
+          x.website || x.phone ? actions(
+            x.website ? h("a", { class: "btn small secondary", href: /^https?:\/\//i.test(x.website) ? x.website : "https://" + x.website, target: "_blank", rel: "noopener" }, ["Website"]) : null,
+            x.phone ? h("a", { class: "btn small secondary", href: "tel:" + x.phone.replace(/[^0-9+]/g, "") }, [x.phone]) : null,
+          ) : null,
+        ])) : desc(d.fabs.length ? "Nobody matches." : "No fabricators listed yet."),
+      ]);
+    }
+    const bodies = [...new Map(d.scrs.map((x) => [x.body, x.bodyName || bodyName(x.body)])).entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    const discs = [...new Map(d.scrs.filter((x) => x.body === d.body && x.discipline).map((x) => [x.discipline, x.disciplineName])).entries()];
+    const hit = (x) => (!d.body || x.body === d.body) && (!d.discipline || !x.discipline || x.discipline === d.discipline) && (!d.logbooks || x.issuesLogbooks) && near(x);
+    const list = groupListings(d.scrs.filter(hit), (x) => x.name + "|" + place(x));
+    return head.concat([
+      desc("Scrutineers who chose to be listed, and where they are. To get a logbook issued, look for one who issues logbooks for your sanctioning body."),
       h("div", { class: "field-row" }, [
         field("Sanctioning body", select([["", "Any"]].concat(bodies), d.body, (v) => { d.body = v; d.discipline = ""; render(); })),
         discs.length ? field("Discipline", select([["", "Any"]].concat(discs), d.discipline, (v) => { d.discipline = v; render(); })) : null,
         field("Near (city, state…)", input({ value: d.search, "data-id": "dir-search", placeholder: "e.g. Concord NH" }, (v) => { d.search = v; render(); restoreFocus("dir-search"); })),
       ]),
-      d.kind === "scrutineers" ? h("div", { class: "account-checks" }, [h("label", {}, [
-        h("input", { type: "checkbox", checked: d.logbooks, onchange: (e) => { d.logbooks = e.target.checked; render(); } }), " Only those who issue logbooks"])]) : null,
+      h("div", { class: "account-checks" }, [h("label", {}, [
+        h("input", { type: "checkbox", checked: d.logbooks, onchange: (e) => { d.logbooks = e.target.checked; render(); } }), " Only those who issue logbooks"])]),
       list.length ? list.map((x) => h("div", { class: "account-card" }, [
-        h("div", { class: "account-card-title account-card-title-row" }, [h("span", {}, [x.business || x.name]),
-          d.kind === "scrutineers" && x.issuesLogbooks ? h("span", { class: "badge pass" }, ["issues logbooks"]) : null]),
-        desc([place(x), x.contactName ? "contact " + x.contactName : null, x.role === "technical_director" ? "technical director" : null].filter(Boolean).join(" · ")),
-        desc("Approved by " + x.scopes.join(", ")),
-        x.website || x.phone ? actions(
-          x.website ? h("a", { class: "btn small secondary", href: /^https?:\/\//i.test(x.website) ? x.website : "https://" + x.website, target: "_blank", rel: "noopener" }, ["Website"]) : null,
-          x.phone ? h("a", { class: "btn small secondary", href: "tel:" + x.phone.replace(/[^0-9+]/g, "") }, [x.phone]) : null,
-        ) : null,
-      ])) : desc(all.length ? "Nobody matches." : d.kind === "fabricators" ? "No approved fabricators yet." : "No scrutineers listed yet."),
-    ];
+        h("div", { class: "account-card-title account-card-title-row" }, [h("span", {}, [x.name]),
+          x.issuesLogbooks ? h("span", { class: "badge pass" }, ["issues logbooks"]) : null]),
+        desc([place(x), x.role === "technical_director" ? "technical director" : null].filter(Boolean).join(" · ")),
+        desc("Accredited by " + x.scopes.join(", ")),
+      ])) : desc(d.scrs.length ? "Nobody matches." : "No scrutineers listed yet."),
+    ]);
   }
-  // ---- Fabricators: applying to be listed, and one's applications ----
-  const fabForm = { business: "", contactName: "", city: "", region: "", country: "", website: "", phone: "", note: "", targets: {} };
-  async function loadMyFabricator() {
-    try { ui.myFab = await rpc("my_fabricator_applications"); } catch (e) { ui.myFab = []; fail(e); }
+  // ---- Fabricators: their own listing (what they build for), and certification by a body ----
+  const fabForm = { business: "", contactName: "", city: "", region: "", country: "", website: "", phone: "", about: "", buildsFor: {}, listed: true, note: "", targets: {} };
+  // PassTech's sanctioning bodies and disciplines (passtech-bodies.json, tools/passtech-bodies.mjs).
+  async function loadPassTechBodies() {
+    try { ui.ptBodies = (await (await fetch("/passtech-bodies.json?v=1")).json()).rulesets; } catch (e) { ui.ptBodies = []; }
     render();
   }
-  const FAB_STATUS = { pending: ["info", "waiting for approval"], approved: ["pass", "approved"], declined: ["fail", "declined"], withdrawn: ["info", "withdrawn"], removed: ["fail", "removed"] };
+  async function loadMyFabricator() {
+    try {
+      const [apps, prof] = await Promise.all([rpc("my_fabricator_applications"), rpc("my_fabricator_profile")]);
+      ui.myFab = apps || []; ui.fabProfile = prof || false;
+    } catch (e) { ui.myFab = []; ui.fabProfile = false; fail(e); }
+    render();
+  }
+  const FAB_STATUS = { pending: ["info", "waiting for approval"], approved: ["pass", "certified"], declined: ["fail", "declined"], withdrawn: ["info", "withdrawn"], removed: ["fail", "removed"] };
   function fabDetailFields() {
     return [
       h("div", { class: "field-row" }, [
@@ -3244,13 +3282,37 @@
       ]),
     ];
   }
+  // The bodies and disciplines to tick, grouped by discipline (Rally, Road Racing...).
+  function buildsForBoxes() {
+    if (ui.ptBodies === undefined) { ui.ptBodies = null; loadPassTechBodies(); }
+    if (!ui.ptBodies) return desc("Loading the sanctioning bodies…");
+    const groups = new Map();
+    ui.ptBodies.forEach((r) => { if (!groups.has(r.group)) groups.set(r.group, []); groups.get(r.group).push(r); });
+    return h("div", { class: "account-builds-for" }, [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([group, list]) => h("fieldset", { class: "account-perm-group" }, [
+      h("legend", {}, [group]),
+      list.map((r) => h("label", { class: "account-checks" }, [h("input", { type: "checkbox", checked: !!fabForm.buildsFor[r.id], onchange: (e) => { fabForm.buildsFor[r.id] = e.target.checked ? r : null; } }),
+        " " + r.bodyName + (r.discipline && r.discipline !== group ? " -- " + r.discipline : "")])),
+    ])));
+  }
   function renderFabricatorSection() {
     if (ui.myFab === undefined) { ui.myFab = null; loadMyFabricator(); }
-    const mine = ui.myFab || [];
+    if (ui.myFab === null) return h("div", { class: "account-card" }, [desc("Loading…")]);
+    const prof = ui.fabProfile;
+    const mine = ui.myFab;
     const live = mine.filter((f) => f.status === "pending" || f.status === "approved");
-    const fill = (f) => Object.assign(fabForm, { business: f.business || "", contactName: f.contactName || "", city: f.city || "", region: f.region || "",
-      country: f.country || "", website: f.website || "", phone: f.phone || "" });
-    // Where one can apply: the active bodies, each discipline (or the body itself), not already applied to.
+    const editProfile = () => {
+      Object.assign(fabForm, prof ? { business: prof.business || "", contactName: prof.contactName || "", city: prof.city || "", region: prof.region || "", country: prof.country || "",
+        website: prof.website || "", phone: prof.phone || "", about: prof.about || "", listed: prof.listed !== false,
+        buildsFor: Object.fromEntries((prof.buildsFor || []).map((b) => [b.id, b])) } : { buildsFor: {}, listed: true });
+      ui.show.fabEdit = true; ui.show.fabApply = false; render();
+    };
+    const saveProfile = async () => {
+      try {
+        ui.fabProfile = await rpc("save_fabricator_profile", { p: Object.assign({}, fabForm, { buildsFor: Object.values(fabForm.buildsFor).filter(Boolean) }) });
+        ui.show.fabEdit = false; ui.dir = null;
+        say("pass", ui.fabProfile.listed ? "Your listing is saved: you're in the fabricator directory." : "Your listing is saved (not shown in the directory).");
+      } catch (e) { fail(e); }
+    };
     const taken = new Set(live.map((f) => f.body + "|" + (f.discipline || "")));
     const targets = (ui.bodies || []).filter((b) => !b.disabled_at && !b.deleted_at).flatMap((b) => {
       const ds = disciplinesOf(b.id);
@@ -3259,43 +3321,56 @@
     const apply = async () => {
       const picked = Object.keys(fabForm.targets).filter((k) => fabForm.targets[k]).map((k) => { const [body, discipline] = k.split("|"); return { body, discipline: discipline || null }; });
       try {
-        await rpc("apply_fabricator", { p: Object.assign({}, fabForm, { targets: picked }) });
+        await rpc("apply_fabricator", { p: { targets: picked, note: fabForm.note } });
         fabForm.targets = {}; ui.show.fabApply = false;
-        say("pass", "Application sent: the sanctioning body's technical director reviews it. You're listed once it's approved.");
+        say("pass", "Certification request sent: the sanctioning body's technical director reviews it. Once approved, your listing says so.");
         loadMyFabricator();
       } catch (e) { fail(e); }
     };
-    const saveDetails = async () => {
-      try { await rpc("update_my_fabricator", { p: fabForm }); ui.show.fabEdit = false; say("pass", "Your listing's details are saved."); loadMyFabricator(); }
-      catch (e) { fail(e); }
-    };
     const withdraw = async (f) => {
-      if (!confirm((f.status === "approved" ? "Leave " : "Withdraw your application to ") + scopeName(f) + "?")) return;
+      if (!confirm((f.status === "approved" ? "Give up your certification by " : "Withdraw your certification request to ") + scopeName(f) + "?")) return;
       try { await rpc("withdraw_fabricator", { p_id: f.id }); loadMyFabricator(); } catch (e) { fail(e); }
     };
-    return h("div", { class: "account-card" }, [
-      h("div", { class: "account-card-title" }, ["Roll cage fabricators: get listed"]),
-      desc("Fabricators apply to each sanctioning body (and discipline) they build cages for; its technical director approves them, and they're then listed above. Design reviews by fabricators come next."),
-      mine.length ? mine.map((f) => h("div", { class: "account-entry" }, [
-        h("span", { class: "account-entry-main" }, [h("strong", {}, [scopeName(f)]), " ",
-          h("span", { class: "badge " + FAB_STATUS[f.status][0] }, [FAB_STATUS[f.status][1]]),
-          h("span", { class: "element-desc" }, [" · " + f.business + " · applied " + fmtDate(f.appliedAt) + (f.decisionNote ? " · " + f.decisionNote : "")])]),
-        f.status === "pending" || f.status === "approved" ? btn(f.status === "approved" ? "Leave" : "Withdraw", () => withdraw(f), "small secondary") : null,
-      ])) : null,
-      actions(
-        btn(live.length ? "Apply to another body" : "Apply to be listed", () => { if (!ui.show.fabApply && live[0]) fill(live[0]); ui.show.fabEdit = false; toggle("fabApply"); }, ui.show.fabApply ? "small" : "small secondary"),
-        live.length ? btn("Edit my details", () => { if (!ui.show.fabEdit) fill(live[0]); ui.show.fabApply = false; toggle("fabEdit"); }, ui.show.fabEdit ? "small" : "small secondary") : null,
-      ),
-      ui.show.fabEdit ? h("div", { class: "account-card" }, [desc("These details show on all your listings."), fabDetailFields(), actions(btn("Save details", saveDetails), btn("Cancel", () => toggle("fabEdit", false), "secondary"))]) : null,
-      ui.show.fabApply ? h("div", { class: "account-card" }, [
-        fabDetailFields(),
-        field("About your work (for the technical director)", h("textarea", { rows: 3, oninput: (e) => { fabForm.note = e.target.value; } }, [fabForm.note])),
-        desc("The sanctioning bodies (and disciplines) to apply to:"),
-        targets.length ? h("div", { class: "account-checks" }, targets.map(([bid, did, label]) => h("label", {}, [
-          h("input", { type: "checkbox", checked: !!fabForm.targets[bid + "|" + did], onchange: (e) => { fabForm.targets[bid + "|" + did] = e.target.checked; } }), " " + label]))) : desc("You've applied everywhere already."),
-        actions(btn("Send the application", apply), btn("Cancel", () => toggle("fabApply", false), "secondary")),
+    return [
+      h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, ["Roll cage fabricators: your listing"]),
+        ui.show.fabEdit ? [
+          desc("How competitors find you in the directory, and who you build cages for. Pick every sanctioning body and discipline you build for."),
+          fabDetailFields(),
+          field("About your work", h("textarea", { rows: 3, oninput: (e) => { fabForm.about = e.target.value; } }, [fabForm.about])),
+          desc("You build cages for:"),
+          buildsForBoxes(),
+          h("div", { class: "account-checks" }, [h("label", {}, [h("input", { type: "checkbox", checked: fabForm.listed, onchange: (e) => { fabForm.listed = e.target.checked; } }), " Show my listing in the public directory"])]),
+          actions(btn("Save my listing", saveProfile), btn("Cancel", () => toggle("fabEdit", false), "secondary")),
+        ] : prof ? [
+          desc([prof.business, place(prof), prof.listed === false ? "not shown in the directory" : "in the directory"].filter(Boolean).join(" · ")),
+          (prof.buildsFor || []).length ? desc("Builds for " + buildsForText(prof.buildsFor)) : desc("Pick the sanctioning bodies you build for (Edit my listing)."),
+          (prof.certifications || []).length ? desc("Certified by " + certText(prof.certifications)) : null,
+          actions(btn("Edit my listing", editProfile, "small secondary")),
+        ] : [
+          desc("Build roll cages? List yourself: your business, where you are, and the sanctioning bodies you build for (any PassTech offers). You're in the directory right away, and competitors can send you their designs for review from the Rollcage assessment tool."),
+          actions(btn("Create my listing", editProfile, "small")),
+        ],
+      ]),
+      prof ? h("div", { class: "account-card" }, [
+        h("div", { class: "account-card-title" }, ["Certification by a sanctioning body (optional)"]),
+        desc("A sanctioning body on this site can certify you: its technical director reviews your request, and your listing then shows \u201cCertified by\u201d it."),
+        mine.length ? mine.map((f) => h("div", { class: "account-entry" }, [
+          h("span", { class: "account-entry-main" }, [h("strong", {}, [scopeName(f)]), " ",
+            h("span", { class: "badge " + FAB_STATUS[f.status][0] }, [FAB_STATUS[f.status][1]]),
+            h("span", { class: "element-desc" }, [" · asked " + fmtDate(f.appliedAt) + (f.decisionNote ? " · " + f.decisionNote : "")])]),
+          f.status === "pending" || f.status === "approved" ? btn(f.status === "approved" ? "Give it up" : "Withdraw", () => withdraw(f), "small secondary") : null,
+        ])) : null,
+        targets.length ? actions(btn("Ask for certification", () => toggle("fabApply"), ui.show.fabApply ? "small" : "small secondary")) : null,
+        ui.show.fabApply ? h("div", { class: "account-card" }, [
+          desc("The sanctioning bodies (and disciplines) to ask:"),
+          h("div", { class: "account-checks" }, targets.map(([bid, did, label]) => h("label", {}, [
+            h("input", { type: "checkbox", checked: !!fabForm.targets[bid + "|" + did], onchange: (e) => { fabForm.targets[bid + "|" + did] = e.target.checked; } }), " " + label]))),
+          field("For the technical director (experience, certifications…)", h("textarea", { rows: 3, oninput: (e) => { fabForm.note = e.target.value; } }, [fabForm.note])),
+          actions(btn("Send the request", apply), btn("Cancel", () => toggle("fabApply", false), "secondary")),
+        ]) : null,
       ]) : null,
-    ]);
+    ];
   }
   // ---- A scrutineer's own directory listing ----
   async function loadStaffProfile() {
@@ -3319,11 +3394,11 @@
         field("Country", input({ value: p.country || "", placeholder: "e.g. USA" }, (v) => { p.country = v; })),
       ]),
       h("div", { class: "account-checks" }, [h("label", {}, [h("input", { type: "checkbox", checked: !!p.listed, onchange: (e) => { p.listed = e.target.checked; } }), " List me in the public scrutineer directory"])]),
-      actions(btn("Save my listing", save)),
+      actions(btn("Save my scrutineer listing", save)),
     ]);
   }
   function renderDirectoryMode() {
-    return renderDirectory().concat([isStaff() ? renderStaffProfile() : null, renderFabricatorSection()]);
+    return renderDirectory().concat([isStaff() ? renderStaffProfile() : null], renderFabricatorSection());
   }
   // ---- A body's fabricators: applications to approve, and the approved ones ----
   async function loadBodyFabricators(b) {
@@ -3354,7 +3429,7 @@
     if (ui.open.fabPending === undefined) { ui.open.fabPending = true; ui.open.fabApproved = true; }
     const pending = all.filter((f) => f.status === "pending"), approved = all.filter((f) => f.status === "approved"), past = all.filter((f) => f.status !== "pending" && f.status !== "approved");
     return [
-      desc("Roll cage fabricators apply from Fabricators and scrutineers (on the home screen). Approved ones are listed in the public directory, for this body and discipline."),
+      desc("Fabricators list themselves (Fabricators and scrutineers, on the home screen), then may ask for your certification. Approved ones show \u201cCertified by\u201d this body in the public directory."),
       section("fabPending", "Waiting for approval (" + pending.length + ")", pending.length ? pending.map(card) : [desc("No applications waiting.")]),
       section("fabApproved", "Approved (" + approved.length + ")", approved.length ? approved.map(card) : [desc("No approved fabricators yet.")]),
       past.length ? section("fabPast", "Declined, withdrawn and removed (" + past.length + ")", past.map(card)) : null,
@@ -3832,7 +3907,7 @@
     event: { title: "Scrutineering", text: "At an event: each car's tech sheet, its inspection and sign-off, and what's left to inspect." },
     events: { title: "Event admin", text: "Organize events: create them, their staff and tech sheets, and their competitors (MotorsportReg import)." },
     // The Scrutineering site's way to the two above: its own page with their cards.
-    directory: { title: "Fabricators and scrutineers", text: "Find an approved roll cage fabricator, or a scrutineer near you. Fabricators apply here to be listed." },
+    directory: { title: "Fabricators and scrutineers", text: "Find a roll cage fabricator or a scrutineer near you. Fabricators list themselves here." },
     requests: { title: "Logbook requests", text: "Roll cage designs sent to you from the Rollcage assessment tool for a logbook: open one, inspect the car, and issue its logbook." },
     logbooks: { title: "Digital logbooks", text: "A car's logbook: create a new one, or open one from the logbook library -- on this device and online." },
     annual: { title: "Annual safety stickers", text: "Season stickers for helmets, HANS, seats, fire extinguishers and suppression systems -- outside an event, from a competitor's application or last season's sticker." },
@@ -4028,7 +4103,7 @@
     const children = [];
     if (ui.directoryView) {
       children.push(h("h2", {}, ["Fabricators and scrutineers"]), renderDirectory(),
-        desc("Fabricators: sign in on this site to apply to be listed."),
+        desc("Fabricators: sign in on this site to list yourself."),
         actions(h("a", { class: "btn small secondary", href: location.pathname }, ["Close"])));
     } else if (ui.stickerView) {
       children.push(h("h2", {}, ["Tech sticker"]), renderSticker(), actions(h("a", { class: "btn small secondary", href: location.pathname }, ["Close"])));
